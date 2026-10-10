@@ -15,5 +15,8 @@ services:
       # Comma-separated list of allowed frontend origins (your Vercel URL).
       - key: SNAPPSENSE_CORS
         value: https://snappsense-app.vercel.app
+      # Also allow Vercel preview deployments of this project.
+      - key: SNAPPSENSE_CORS_REGEX
+        value: ^https://snappsense-app(-[a-z0-9-]+)*\.vercel\.app$
       - key: SNAPPSENSE_LOCAL_MODEL
         value: ""

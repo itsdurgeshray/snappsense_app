@@ -39,7 +39,13 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="Snappsense API", version="1.0.0", lifespan=lifespan)
-app.add_middleware(CORSMiddleware, allow_origins=settings.cors_origins, allow_methods=["GET", "POST"], allow_headers=["*"])
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=settings.cors_origins,
+    allow_origin_regex=settings.cors_origin_regex,
+    allow_methods=["GET", "POST"],
+    allow_headers=["*"],
+)
 class SelectiveGZip(GZipMiddleware):
     """Gzip everything except the live event stream: compression buffers SSE
     until the response ends, which would freeze progress in the browser."""

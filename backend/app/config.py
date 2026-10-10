@@ -52,9 +52,16 @@ class Settings:
     asc_key_id: str | None = field(default_factory=lambda: os.environ.get("ASC_KEY_ID"))
     asc_private_key_path: str | None = field(default_factory=lambda: os.environ.get("ASC_PRIVATE_KEY_PATH"))
 
+    # Exact origins, comma-separated; spaces and trailing slashes are ignored.
     cors_origins: list[str] = field(
-        default_factory=lambda: os.environ.get("SNAPPSENSE_CORS", "http://localhost:5179,http://127.0.0.1:5179").split(",")
+        default_factory=lambda: [
+            o.strip().rstrip("/")
+            for o in os.environ.get("SNAPPSENSE_CORS", "http://localhost:5179,http://127.0.0.1:5179").split(",")
+            if o.strip()
+        ]
     )
+    # Optional pattern, e.g. to allow every Vercel preview deployment.
+    cors_origin_regex: str | None = field(default_factory=lambda: os.environ.get("SNAPPSENSE_CORS_REGEX") or None)
 
     @property
     def asc_enabled(self) -> bool:
