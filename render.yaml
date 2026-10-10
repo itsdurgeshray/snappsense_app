@@ -1,0 +1,19 @@
+# Render Blueprint for the Snappsense API (FastAPI).
+# New → Blueprint → pick this repo. Free plan works; it sleeps when idle.
+services:
+  - type: web
+    name: snappsense-api
+    runtime: python
+    plan: free
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /api/health
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.13.2
+      # Comma-separated list of allowed frontend origins (your Vercel URL).
+      - key: SNAPPSENSE_CORS
+        value: https://your-app.vercel.app
+      - key: SNAPPSENSE_LOCAL_MODEL
+        value: ""

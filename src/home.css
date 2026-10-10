@@ -1,0 +1,107 @@
+/* ==========================================================================
+   Homepage: hero + marquee, exactly one viewport tall.
+   The marquee is pinned to the bottom of the viewport at every size, and the
+   hero gradient (#FFFFFF → #FBC3E2) ends where the marquee begins.
+   ========================================================================== */
+
+.landing {
+  min-height: 100vh;
+  min-height: 100svh;
+  padding-top: 0;
+  display: flex;
+  flex-direction: column;
+  background: #fbc3e2;
+  overflow: visible;
+}
+.landing__body {
+  position: relative;
+  flex: 1 0 auto;
+  display: flex;
+  flex-direction: column;
+  background: linear-gradient(180deg, #ffffff 0%, #fbc3e2 100%);
+  overflow: hidden;
+}
+.landing__main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+.landing .landing__hero {
+  padding-top: clamp(12px, 6vh, 80px);
+}
+.landing .landing__title {
+  font-size: clamp(32px, min(4.6vw, 7.4vh), 66px);
+}
+.landing .landing__stage {
+  flex: 1;
+  padding: clamp(24px, 7vh, 96px) 0 clamp(28px, 7vh, 96px);
+}
+
+/* Marquee: always visible at the bottom of the viewport. */
+.landing .marquee {
+  position: sticky;
+  bottom: 0;
+  z-index: 10;
+  flex-shrink: 0;
+  height: clamp(64px, 11vh, 125px);
+}
+.landing .marquee__item {
+  font-size: clamp(22px, min(3.2vw, 4.4vh), 34px);
+}
+.landing .marquee__item svg {
+  width: clamp(18px, 3vh, 28px);
+  height: clamp(18px, 3vh, 28px);
+}
+
+/* Entrance */
+.landing__title {
+  animation: rise 0.9s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
+.landing__sub {
+  animation: rise 0.9s 0.12s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
+.landing__stage .snap {
+  animation: rise 0.9s 0.24s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
+.landing__rings {
+  animation: rings-in 1.6s 0.2s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(18px);
+  }
+}
+@keyframes rings-in {
+  from {
+    opacity: 0;
+    transform: translateX(-50%) translateY(60px) scale(0.96);
+  }
+}
+
+.snap {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+.snap-form input {
+  transition: border-color 0.15s, box-shadow 0.2s;
+}
+.snap-form input:focus {
+  box-shadow: 0 0 0 4px rgba(242, 80, 172, 0.15), 0 20px 50px -20px rgba(242, 80, 172, 0.45);
+}
+
+@media (max-width: 720px) {
+  .landing .landing__stage {
+    padding: 32px 0 40px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .landing *,
+  .landing *::before,
+  .landing *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
+}
