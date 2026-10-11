@@ -1,5 +1,5 @@
 import { useId, useState, type FormEvent } from "react";
-import { parseStoreLink } from "../data";
+import { linkProblem, parseStoreLink } from "../data";
 import { navigate } from "../router";
 
 export function SnapForm({ tone = "light" }: { tone?: "light" | "dark" }) {
@@ -11,7 +11,7 @@ export function SnapForm({ tone = "light" }: { tone?: "light" | "dark" }) {
     e.preventDefault();
     const ref = parseStoreLink(link);
     if (!ref) {
-      setError("Paste a Google Play or App Store link — e.g. play.google.com/store/apps/details?id=com.example.app or apps.apple.com/us/app/…/id123456789");
+      setError(linkProblem(link));
       return;
     }
     setError("");

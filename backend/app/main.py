@@ -5,6 +5,7 @@
     GET  /api/jobs/{id}/events     live progress + results (Server-Sent Events)
     GET  /api/reviews?report=…&issue=…   every review behind one feedback row
     GET  /api/resolve?url=…        validate/parse a store link
+    POST /api/feedback             store a "Give feedback" message
     GET  /api/health               service status
 """
 
@@ -28,6 +29,7 @@ from .jobs import JobManager
 from .links import AppRef, LinkError, parse_link
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+log = logging.getLogger("snappsense")
 
 
 @asynccontextmanager
@@ -81,6 +83,23 @@ def _ref(body: AnalyzeBody) -> AppRef:
     except LinkError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
     raise HTTPException(status_code=400, detail="Send a store link (url) or store + appId.")
+
+
+class FeedbackBody(BaseModel):
+    rating: int | None = Field(None, ge=1, le=5)
+    message: str = Field("", max_length=2000)
+    page: str | None = Field(None, max_length=300)
+
+
+@app.post("/api/feedback", status_code=204)
+async def feedback(body: FeedbackBody, request: Request):
+    message = body.message.strip()
+    if body.rating is None and not message:
+        raise HTTPException(status_code=400, detail="Add a rating or a message.")
+    jobs: JobManager = request.app.state.jobs
+    jobs.cache.add_feedback(body.rating, message, body.page)
+    # Also logged, so it shows up in the hosting dashboard's logs.
+    log.info("feedback rating=%s page=%s message=%r", body.rating, body.page, message)
 
 
 @app.get("/api/health")

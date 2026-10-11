@@ -1,0 +1,124 @@
+@font-face {
+  font-family: "Orbiter FBS Trial";
+  src: url("/fonts/OrbiterFBSTrial-Regular.woff2") format("woff2");
+  font-weight: 400;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Orbiter FBS Trial";
+  src: url("/fonts/OrbiterFBSTrial-Medium.woff2") format("woff2");
+  font-weight: 500 700;
+  font-display: swap;
+}
+:root {
+  --ink: #111;
+  --muted: #6b6b73;
+  --brand: #f250ac;
+}
+* {
+  box-sizing: border-box;
+}
+body {
+  margin: 0;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  font-family: "Orbiter FBS Trial", system-ui, sans-serif;
+  color: var(--ink);
+  background: linear-gradient(180deg, #fff 0%, #fff 55%, #fde4f1 100%);
+  line-height: 1.6;
+}
+a {
+  color: inherit;
+}
+.top,
+.foot,
+.doc {
+  width: 100%;
+  max-width: 760px;
+  margin: 0 auto;
+  padding-inline: 16px;
+}
+.top {
+  padding-block: 24px 8px;
+}
+.top a {
+  display: inline-flex;
+  color: var(--ink);
+}
+.doc {
+  flex: 1;
+  padding-block: 32px 64px;
+  font-size: 16px;
+}
+.doc h1 {
+  margin: 0 0 4px;
+  font-size: clamp(30px, 5vw, 44px);
+  font-weight: 500;
+  line-height: 1.15;
+  letter-spacing: -0.01em;
+}
+.doc h2 {
+  margin: 36px 0 8px;
+  font-size: 20px;
+  font-weight: 500;
+}
+.doc p,
+.doc li {
+  color: #2c2c33;
+}
+.doc ul {
+  padding-left: 20px;
+}
+.doc li + li {
+  margin-top: 6px;
+}
+.muted {
+  color: var(--muted) !important;
+  margin-top: 0;
+}
+.doc--center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+}
+.code {
+  margin: 0;
+  font-size: 96px;
+  font-weight: 500;
+  line-height: 1;
+  color: var(--brand);
+}
+.btn {
+  margin-top: 16px;
+  display: inline-flex;
+  align-items: center;
+  height: 52px;
+  padding: 0 28px;
+  background: var(--ink);
+  color: #fff;
+  text-decoration: none;
+  font-weight: 500;
+}
+.btn:hover {
+  background: var(--brand);
+}
+.foot {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 20px;
+  padding-block: 20px 28px;
+  font-size: 14px;
+  color: var(--muted);
+}
+.foot a {
+  text-decoration: none;
+}
+.foot a:hover {
+  color: var(--brand);
+}
+.foot span {
+  margin-left: auto;
+}

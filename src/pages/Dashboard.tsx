@@ -12,7 +12,7 @@ import { navigate } from "../router";
 function AppIcon({ src, name }: { src: string | null | undefined; name: string }) {
   const [broken, setBroken] = useState(false);
   if (src && !broken) {
-    return <img className="dash-app__icon" src={src} alt="" width={56} height={56} onError={() => setBroken(true)} />;
+    return <img className="dash-app__icon" src={src} alt={`${name} app icon`} width={56} height={56} onError={() => setBroken(true)} />;
   }
   return (
     <div className="dash-app__icon dash-app__icon--blank" aria-hidden="true">
@@ -22,15 +22,16 @@ function AppIcon({ src, name }: { src: string | null | undefined; name: string }
 }
 
 export function Dashboard({ store, appId, country, depth }: { store: Store; appId: string; country: string; depth: Depth }) {
-  const { report, progress, appName, appIcon, error, status, reload } = useReport({ store, appId, country, depth });
-  const [startedAt, setStartedAt] = useState(() => performance.now());
+  const { report, progress, appName, appIcon, error, reload } = useReport({ store, appId, country, depth });
   const [filters, setFilters] = useState<TableFilters>({ category: "All", priority: "All" });
-  useEffect(() => {
-    if (status === "loading") setStartedAt(performance.now());
-  }, [status]);
 
   const name = report?.app.name ?? appName ?? appId;
   const a = report?.app;
+  useEffect(() => {
+    document.title = report ? `${report.app.name} feedback analysis · Snappsense` : "Analysing… · Snappsense";
+  }, [report]);
+
+  if (!report && !error) return <Loader progress={progress} icon={appIcon} name={appName ?? ""} />;
 
   return (
     <>
@@ -92,9 +93,7 @@ export function Dashboard({ store, appId, country, depth }: { store: Store; appI
               </button>
             </div>
           </section>
-        ) : !report ? (
-          <Loader progress={progress} icon={appIcon} name={name} startedAt={startedAt} />
-        ) : (
+        ) : !report ? null : (
           <div className="dash-grid">
             <SentimentTrends key={report.id + report.generatedAt} trends={report.trends} />
             <RatingsGauge ratings={report.ratings} basis={report.ratingsBasis} />

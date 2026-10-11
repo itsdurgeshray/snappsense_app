@@ -86,3 +86,9 @@ def test_event_stream_is_not_compressed(client):
     with client.stream("GET", f"/api/jobs/{r['jobId']}/events", headers={"Accept-Encoding": "gzip"}) as resp:
         assert "gzip" not in resp.headers.get("content-encoding", "")
         list(resp.iter_lines())
+
+
+def test_feedback(client):
+    assert client.post("/api/feedback", json={"rating": 4, "message": "Love it", "page": "/"}).status_code == 204
+    assert client.post("/api/feedback", json={"message": "   "}).status_code == 400
+    assert client.post("/api/feedback", json={"rating": 9}).status_code == 422

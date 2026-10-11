@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { Header } from "../components/Header";
 import { SnapForm } from "../components/SnapForm";
 import { Marquee } from "../components/home/Marquee";
@@ -5,6 +6,9 @@ import heroRings from "../assets/hero-rings.svg";
 import "../home.css";
 
 export function Landing() {
+  useEffect(() => {
+    document.title = "Snappsense · App review analysis for Play Store & App Store";
+  }, []);
   return (
     <div className="landing">
       {/* Gradient area: ends exactly where the marquee strip begins. */}
@@ -24,6 +28,9 @@ export function Landing() {
             </div>
             <div className="container">
               <SnapForm />
+              <p className="landing__legal">
+                Free to use. By analysing an app you agree to our <a href="/terms/">Terms</a> and <a href="/privacy/">Privacy Policy</a>.
+              </p>
             </div>
           </div>
         </main>

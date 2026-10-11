@@ -162,6 +162,15 @@ export function parseStoreLink(input: string): StoreRef | null {
   return null;
 }
 
+/** A short, friendly reason a link can't be used (only call when parseStoreLink failed). */
+export function linkProblem(input: string): string {
+  const value = input.trim().toLowerCase();
+  if (!value) return "Paste an app link to get started.";
+  if (value.includes("play.google.com") || value.includes("apps.apple.com") || value.includes("itunes.apple.com"))
+    return "Open the app’s own store page and copy that link.";
+  return "That’s not a store link. Copy it from the app’s store page.";
+}
+
 export const STORE_LABEL: Record<Store, string> = { play: "Google Play", app: "App Store" };
 
 /** "1,000,000,000+" → "1B+", "500,000+" → "500K+" */

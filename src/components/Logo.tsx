@@ -19,6 +19,17 @@ export function Logo({ onClick }: { onClick?: () => void }) {
   );
 }
 
+/**
+ * The mark split into its parts for the loader: the solid arc, the nine
+ * dashes in clockwise order (bottom → top), and the centre square.
+ */
+const PARTS = MARK.split(/(?=M)/);
+export const MARK_ARC = PARTS[0];
+export const MARK_DASHES = [9, 8, 7, 6, 1, 2, 3, 4, 5].map((i) => PARTS[i]);
+export const MARK_SQUARE = PARTS[10];
+/** Centre of the mark in its own coordinates. */
+export const MARK_CENTER = { x: 30.52, y: 40.12 };
+
 /** The mark alone (no wordmark), e.g. for loaders. */
 export function LogoMark({ size = 64, className }: { size?: number; className?: string }) {
   return (

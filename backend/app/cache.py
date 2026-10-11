@@ -23,6 +23,9 @@ class ReportCache:
         self._db.execute(
             "CREATE TABLE IF NOT EXISTS issue_reviews (report TEXT NOT NULL, issue TEXT NOT NULL, created REAL NOT NULL, body TEXT NOT NULL, PRIMARY KEY (report, issue))"
         )
+        self._db.execute(
+            "CREATE TABLE IF NOT EXISTS feedback (id INTEGER PRIMARY KEY, created REAL NOT NULL, rating INTEGER, message TEXT NOT NULL, page TEXT)"
+        )
         self._lock = threading.Lock()
         self.ttl = ttl_seconds
 
@@ -61,6 +64,12 @@ class ReportCache:
         with self._lock:
             row = self._db.execute("SELECT body FROM issue_reviews WHERE report = ? AND issue = ?", (report_id, issue_id)).fetchone()
         return json.loads(row[0]) if row else None
+
+    def add_feedback(self, rating: int | None, message: str, page: str | None) -> None:
+        with self._lock:
+            self._db.execute(
+                "INSERT INTO feedback (created, rating, message, page) VALUES (?, ?, ?, ?)", (time.time(), rating, message, page)
+            )
 
     def count(self) -> int:
         with self._lock:

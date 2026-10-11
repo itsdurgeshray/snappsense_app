@@ -2,10 +2,12 @@
 
 Paste a Google Play or App Store link and get a live report of what users are unhappy about: sentiment trends, all-time ratings, and a prioritised table of concerns with suggested fixes — built entirely on free, local tooling.
 
+> **Proprietary: all rights reserved.** This code is shared for viewing only. You may not copy, reuse, deploy or build on it, in whole or in part, without written permission. See [LICENSE](LICENSE).
+
 ```
 snappsense/
 ├── src/            React + TypeScript frontend (Vite)
-├── public/         Static assets (fonts, favicon)
+├── public/         Static assets (fonts, icons, share image, legal & 404 pages, robots/sitemap)
 └── backend/        FastAPI service: fetching, analysis, caching (see backend/README.md)
 ```
 

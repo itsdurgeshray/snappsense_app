@@ -2,14 +2,36 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="description" content="Snappsense — paste a Play Store link and get instant insight into user feedback." />
+    <title>Snappsense · App review analysis for Play Store &amp; App Store</title>
+    <meta name="description" content="Paste a Google Play or App Store link and see what users complain about, ranked by impact, with a suggested fix for each issue. Free, in seconds." />
+    <link rel="canonical" href="https://snappsense-app.vercel.app/" />
+    <meta name="theme-color" content="#f250ac" />
+
+    <link rel="icon" href="/favicon.ico" sizes="any" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="manifest" href="/site.webmanifest" />
+
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Snappsense" />
+    <meta property="og:url" content="https://snappsense-app.vercel.app/" />
+    <meta property="og:title" content="Snappsense · Capture sense of user feedback with snap" />
+    <meta property="og:description" content="Paste a Play Store or App Store link. Get the issues worth fixing in seconds." />
+    <meta property="og:image" content="https://snappsense-app.vercel.app/og.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="Snappsense: capture sense of user feedback with snap" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Snappsense · Capture sense of user feedback with snap" />
+    <meta name="twitter:description" content="Paste a Play Store or App Store link. Get the issues worth fixing in seconds." />
+    <meta name="twitter:image" content="https://snappsense-app.vercel.app/og.png" />
+
     <link rel="preload" href="/fonts/OrbiterFBSTrial-Regular.woff2" as="font" type="font/woff2" crossorigin />
     <link rel="preload" href="/fonts/OrbiterFBSTrial-Medium.woff2" as="font" type="font/woff2" crossorigin />
-    <title>Snappsense</title>
   </head>
   <body>
+    <noscript>Snappsense needs JavaScript to analyse app reviews.</noscript>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>

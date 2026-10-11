@@ -132,3 +132,9 @@ export async function fetchIssueReviews(reportId: string, issueId: string, signa
   if (!res.ok) throw new Error(body.detail ?? "Couldn't load these reviews.");
   return body.reviews as IssueReview[];
 }
+
+/** Sends a "Give feedback" message to the server. */
+export async function sendFeedback(body: { rating: number | null; message: string; page: string }) {
+  const res = await fetch(`${BASE}/api/feedback`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  if (!res.ok) throw new Error("send failed");
+}
