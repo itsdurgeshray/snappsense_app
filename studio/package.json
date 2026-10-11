@@ -8,7 +8,7 @@
     "dev": "sanity dev",
     "build": "sanity build",
     "deploy": "sanity deploy",
-    "import-seed": "sanity dataset import seed/initial.ndjson production --missing"
+    "import-seed": "sanity dataset import seed/initial.ndjson --dataset production --missing"
   },
   "engines": {
     "node": ">=22.12"
