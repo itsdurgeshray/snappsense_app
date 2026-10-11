@@ -15,6 +15,7 @@ close together. Everything is free, local and takes well under a second.
 from __future__ import annotations
 
 import re
+import zlib
 from dataclasses import dataclass, field
 
 import numpy as np
@@ -41,6 +42,8 @@ STOP_WORDS = ENGLISH_STOP_WORDS | _DOMAIN_STOP | _HINGLISH
 _TOKEN = r"(?u)\b[a-zA-Z][a-zA-Z]+\b"
 
 MAX_ISSUES_PER_CATEGORY = 6
+KMEANS_FIT = 4000  # concerns per category used to find the clusters; the rest are assigned
+FR_FIT = 1500  # distinct feature phrases clustered pairwise (memory grows with the square)
 MERGE_SIMILARITY = 0.8  # centroids closer than this are the same issue
 FR_DISTANCE = 0.85  # feature phrases: cosine distance for "same feature"
 
@@ -173,15 +176,22 @@ def cluster_category(
         else:
             from sklearn.cluster import KMeans
 
-            labels = KMeans(n_clusters=k, n_init=5, random_state=0).fit_predict(Z)
+            km = KMeans(n_clusters=k, n_init=5, random_state=0)
+            if len(texts) > KMEANS_FIT:  # fit on a sample, then place every concern
+                # Stable sample (by review id), so refreshes don't reshuffle the issues.
+                fit = np.argsort([zlib.crc32(r.id.encode()) for r in reviews], kind="stable")[:KMEANS_FIT]
+                labels = km.fit(Z[fit]).predict(Z)
+            else:
+                labels = km.fit_predict(Z)
             labels = _merge_close(labels, Z)
 
     T = embedder.tfidf(texts)
     issues: list[Issue] = []
     for c in sorted(set(labels.tolist())):
         idx = np.where(labels == c)[0]
-        centroid = Z[idx].mean(axis=0)
-        sims = Z[idx] @ centroid / (np.linalg.norm(centroid) or 1)
+        Zc = Z[idx]  # dense, or sparse for very large feature-request sets
+        centroid = np.asarray(Zc.mean(axis=0)).ravel()
+        sims = np.asarray(Zc @ centroid).ravel() / (np.linalg.norm(centroid) or 1)
         order = idx[np.argsort(-sims)]
         issue = Issue(
             category,
@@ -202,21 +212,49 @@ _SYNONYMS = {"theme": "mode", "themes": "mode", "songs": "song", "videos": "vide
 
 
 def _cluster_features(phrases: list[str]) -> tuple[np.ndarray, np.ndarray]:
-    """Group requested features by their own words: 'dark mode' ≠ 'sleep timer'."""
+    """Group requested features by their own words: 'dark mode' ≠ 'sleep timer'.
+
+    Pairwise clustering needs memory that grows with the square of its input,
+    so it runs on distinct phrases only (most requests repeat a few phrasings),
+    capped at the FR_FIT most common; rarer phrasings join the nearest group
+    if they're close enough, otherwise stay on their own.
+    """
     norm = [" ".join(_SYNONYMS.get(w, w.rstrip("s") if len(w) > 3 else w) for w in re.findall(r"[a-z]+", p.lower())) for p in phrases]
+    counts: dict[str, int] = {}
+    for p in norm:
+        counts[p] = counts.get(p, 0) + 1
+    uniq = sorted(counts, key=lambda p: -counts[p])
     vec = TfidfVectorizer(stop_words=sorted(STOP_WORDS), token_pattern=_TOKEN, ngram_range=(1, 2), sublinear_tf=True)
     try:
-        X = vec.fit_transform(norm).toarray()
+        U = vec.fit_transform(uniq)
     except ValueError:
         return np.zeros(len(phrases), dtype=int), np.zeros((len(phrases), 1))
-    n = np.linalg.norm(X, axis=1, keepdims=True)
-    X = X / np.where(n == 0, 1, n)
-    if len(phrases) < 2:
-        return np.zeros(len(phrases), dtype=int), X
-    labels = AgglomerativeClustering(n_clusters=None, distance_threshold=FR_DISTANCE, metric="cosine", linkage="average").fit_predict(
-        X + 1e-9  # avoid zero vectors for cosine
-    )
-    return labels, X
+    from sklearn.preprocessing import normalize
+
+    U = normalize(U)
+    head = min(len(uniq), FR_FIT)
+    if head < 2:
+        ulabels = np.zeros(len(uniq), dtype=int)
+    else:
+        ulabels = np.empty(len(uniq), dtype=int)
+        # Cosine distances from one sparse product: far cheaper than scipy's
+        # dense pairwise pass. Empty phrases are at distance 1 from everything.
+        D = 1.0 - (U[:head] @ U[:head].T).toarray()
+        np.clip(D, 0.0, 1.0, out=D)
+        np.fill_diagonal(D, 0.0)
+        ulabels[:head] = AgglomerativeClustering(n_clusters=None, distance_threshold=FR_DISTANCE, metric="precomputed", linkage="average").fit_predict(D)
+        if head < len(uniq):
+            ids = np.unique(ulabels[:head])
+            C = normalize(np.vstack([np.asarray(U[:head][ulabels[:head] == c].mean(axis=0)) for c in ids]))
+            sims = U[head:] @ C.T
+            best = sims.argmax(axis=1)
+            near = sims[np.arange(sims.shape[0]), best] >= 1 - FR_DISTANCE
+            fresh = np.arange(head, len(uniq)) + ulabels.max() + 1  # unmatched: their own group
+            ulabels[head:] = np.where(near, ids[best], fresh)
+    index = {p: i for i, p in enumerate(uniq)}
+    rows = np.fromiter((index[p] for p in norm), dtype=int, count=len(norm))
+    X = U[rows].toarray() if U.shape[1] * len(norm) <= 4_000_000 else U[rows]
+    return ulabels[rows], X
 
 
 def _representative_feature(phrases: list[str]) -> str:

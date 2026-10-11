@@ -11,8 +11,9 @@ const SCRIPT: Record<"connect" | "fetch" | "analyze", (name: string) => string[]
   fetch: (name) => [
     name ? `Found ${name}` : "Found the app",
     "Collecting the latest reviews",
+    "Finding the app versions people use now",
+    "Reading back to when those versions came out",
     "Covering every rating, 1★ to 5★",
-    "Reading from the newest reviews back",
   ],
   analyze: () => [
     "Reading the mood of every review",

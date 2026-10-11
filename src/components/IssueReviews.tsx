@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
-import { fetchIssueReviews } from "../api";
+import { useEffect, useState } from "react";
+import { fetchIssueReviews, type ReviewPage } from "../api";
 import type { FeedbackRow, IssueReview } from "../data";
 import { Modal } from "./Modal";
 import { CategoryPill, Evidence, PriorityBadge, Select } from "./FeedbackTable";
@@ -24,38 +24,46 @@ function Highlighted({ text, concern }: { text: string; concern: string }) {
   );
 }
 
-export function IssueReviews({ reportId, row, onClose }: { reportId: string; row: FeedbackRow; onClose: () => void }) {
-  const [reviews, setReviews] = useState<IssueReview[] | null>(null);
+export function IssueReviews({ reportId, row, versions, onClose }: { reportId: string; row: FeedbackRow; versions?: string[]; onClose: () => void }) {
+  const [page, setPage] = useState<ReviewPage | null>(null);
+  const [items, setItems] = useState<IssueReview[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState("");
+  const [q, setQ] = useState(""); // debounced search sent to the server
   const [stars, setStars] = useState<number | null>(null);
   const [sort, setSort] = useState<Sort>("relevant");
-  const [shown, setShown] = useState(PAGE);
 
   useEffect(() => {
+    const t = window.setTimeout(() => setQ(query), 250);
+    return () => window.clearTimeout(t);
+  }, [query]);
+
+  // First page whenever the filters change; big issues are never sent in one go.
+  useEffect(() => {
     const ctrl = new AbortController();
-    fetchIssueReviews(reportId, row.id, ctrl.signal)
-      .then(setReviews)
-      .catch((e) => e.name !== "AbortError" && setError(e.message));
+    setLoading(true);
+    fetchIssueReviews(reportId, row.id, { q, stars, sort, limit: PAGE, versions }, ctrl.signal)
+      .then((p) => {
+        setPage(p);
+        setItems(p.reviews);
+        setError(null);
+      })
+      .catch((e) => e.name !== "AbortError" && setError(e.message))
+      .finally(() => !ctrl.signal.aborted && setLoading(false));
     return () => ctrl.abort();
-  }, [reportId, row.id]);
+  }, [reportId, row.id, q, stars, sort, versions]);
 
-  const starCounts = useMemo(() => {
-    const c = [0, 0, 0, 0, 0, 0];
-    reviews?.forEach((r) => c[r.rating]++);
-    return c;
-  }, [reviews]);
+  const more = () => {
+    setLoading(true);
+    fetchIssueReviews(reportId, row.id, { q, stars, sort, limit: PAGE, offset: items.length, versions })
+      .then((p) => setItems((cur) => [...cur, ...p.reviews]))
+      .catch((e) => setError(e.message))
+      .finally(() => setLoading(false));
+  };
 
-  const visible = useMemo(() => {
-    if (!reviews) return [];
-    const q = query.trim().toLowerCase();
-    let list = reviews.filter((r) => (stars === null || r.rating === stars) && (!q || `${r.title ?? ""} ${r.text}`.toLowerCase().includes(q)));
-    if (sort === "newest") list = [...list].sort((a, b) => b.date.localeCompare(a.date));
-    if (sort === "helpful") list = [...list].sort((a, b) => b.thumbs - a.thumbs);
-    return list; // "relevant" keeps the server order: closest to the issue first
-  }, [reviews, query, stars, sort]);
-
-  useEffect(() => setShown(PAGE), [query, stars, sort]);
+  const starCount = (s: number) => page?.stars[String(s)] ?? 0;
+  const left = (page?.matched ?? 0) - items.length;
 
   return (
     <Modal title={row.feedback} onClose={onClose} wide>
@@ -97,9 +105,9 @@ export function IssueReviews({ reportId, row, onClose }: { reportId: string; row
               All
             </button>
             {[1, 2, 3, 4, 5].map((s) =>
-              starCounts[s] ? (
+              starCount(s) ? (
                 <button key={s} type="button" aria-pressed={stars === s} onClick={() => setStars(stars === s ? null : s)}>
-                  {s}★ <span>{starCounts[s]}</span>
+                  {s}★ <span>{starCount(s).toLocaleString()}</span>
                 </button>
               ) : null,
             )}
@@ -118,17 +126,17 @@ export function IssueReviews({ reportId, row, onClose }: { reportId: string; row
           </div>
         </div>
 
-        <div className="ir__list" aria-live="polite">
+        <div className="ir__list" aria-live="polite" aria-busy={loading}>
           {error && <p className="ir__empty">{error}</p>}
-          {!error && !reviews && (
+          {!error && !page && (
             <div className="ir__loading" aria-label="Loading reviews">
               {[0, 1, 2].map((i) => (
                 <span key={i} />
               ))}
             </div>
           )}
-          {reviews && visible.length === 0 && <p className="ir__empty">No reviews match.</p>}
-          {visible.slice(0, shown).map((r, i) => (
+          {page && !loading && items.length === 0 && <p className="ir__empty">No reviews match.</p>}
+          {items.map((r, i) => (
             <article className="ir__review" key={i}>
               <div className="ir__meta">
                 <span className="quote__stars" aria-label={`${r.rating} stars`}>
@@ -144,9 +152,9 @@ export function IssueReviews({ reportId, row, onClose }: { reportId: string; row
               </p>
             </article>
           ))}
-          {visible.length > shown && (
-            <button type="button" className="ir__more" onClick={() => setShown((n) => n + PAGE)}>
-              Show {Math.min(PAGE, visible.length - shown)} more of {visible.length - shown}
+          {left > 0 && (
+            <button type="button" className="ir__more" onClick={more} disabled={loading}>
+              {loading ? "Loading…" : `Show ${Math.min(PAGE, left).toLocaleString()} more of ${left.toLocaleString()}`}
             </button>
           )}
         </div>

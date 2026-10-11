@@ -14,8 +14,16 @@ export function SentimentTrends({ trends }: { trends: Record<Range, Period[]> })
   const [range, setRange] = useState<Range>(() => bestRange(trends));
   const [hover, setHover] = useState<{ i: number; x: number; y: number } | null>(null);
   const periods = trends[range];
-  const totals = periods.map((p) => SENTIMENTS.reduce((a, s) => a + p.counts[s.key], 0));
-  const max = Math.max(...totals) || 1;
+  const pct = (v: number) => `${Math.round(v * 100)}%`;
+  // Older reports (before share-based trends) only carry counts.
+  const shareOf = (p: Period, k: (typeof SENTIMENTS)[number]["key"]) => {
+    if (p.share) return p.share[k];
+    const c = p.counts;
+    const t = c ? SENTIMENTS.reduce((a, s) => a + c[s.key], 0) : 0;
+    return c && t ? c[k] / t : 0;
+  };
+  const caption = (p: Period) =>
+    p.empty ? "not enough data" : p.counts ? `${SENTIMENTS.reduce((a, s) => a + (p.counts?.[s.key] ?? 0), 0).toLocaleString()} reviews` : "estimated";
 
   return (
     <section className="card" aria-labelledby="trends-title">
@@ -39,7 +47,7 @@ export function SentimentTrends({ trends }: { trends: Record<Range, Period[]> })
               key={`${range}-${p.start}`}
               className={`bars__col${p.estimated ? " is-est" : ""}${p.empty ? " is-empty" : ""}`}
               role="img"
-              aria-label={p.empty ? `${p.label}: not enough data` : `${p.label}: ${p.estimated ? "about " : ""}${totals[i].toLocaleString()} reviews`}
+              aria-label={`${p.label}: ${caption(p)}${p.empty ? "" : ", " + SENTIMENTS.map((s) => `${s.label} ${pct(shareOf(p, s.key))}`).join(", ")}`}
               onMouseMove={(e) => {
                 const host = e.currentTarget.parentElement!.getBoundingClientRect();
                 const col = e.currentTarget.getBoundingClientRect();
@@ -47,7 +55,7 @@ export function SentimentTrends({ trends }: { trends: Record<Range, Period[]> })
               }}
             >
               {SENTIMENTS.map((s) => (
-                <div key={s.key} className="bars__seg" style={{ height: `${(p.counts[s.key] / max) * 100}%`, background: s.color }} />
+                <div key={s.key} className="bars__seg" style={{ height: p.empty ? 0 : `${shareOf(p, s.key) * 100}%`, background: s.color }} />
               ))}
             </div>
           ))}
@@ -61,8 +69,7 @@ export function SentimentTrends({ trends }: { trends: Record<Range, Period[]> })
         {hover && (
           <div className="tooltip" style={{ left: hover.x, top: hover.y }}>
             <div className="tooltip__title">
-              {periods[hover.i].label} ·{" "}
-              {periods[hover.i].empty ? "not enough data" : `${periods[hover.i].estimated ? "≈ " : ""}${totals[hover.i].toLocaleString()} reviews`}
+              {periods[hover.i].label} · {caption(periods[hover.i])}
             </div>
             {!periods[hover.i].empty && [...SENTIMENTS].reverse().map((s) => (
               <div className="tooltip__row" key={s.key}>
@@ -70,7 +77,7 @@ export function SentimentTrends({ trends }: { trends: Record<Range, Period[]> })
                   <i className="swatch" style={{ background: s.color }} />
                   {s.label}
                 </span>
-                <span>{periods[hover.i].counts[s.key].toLocaleString()}</span>
+                <span>{pct(shareOf(periods[hover.i], s.key))}</span>
               </div>
             ))}
           </div>

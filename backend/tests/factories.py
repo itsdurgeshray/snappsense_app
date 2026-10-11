@@ -24,3 +24,19 @@ def make_fetch(per_star: int = 30, hours_per_review: dict[int, float] | None = N
         cov[star] = NOW - timedelta(hours=hours_per_review[star] * per_star)
     meta = AppMeta(store="play", app_id="com.example.shop", country="us", name="Example Shop", histogram=histogram or [100, 50, 80, 200, 600])
     return FetchResult(meta=meta, reviews=reviews, sources=["test"], coverage=cov if coverage else None)
+
+
+def as_page(fake_reviews):
+    """Adapt a fake of google_play_scraper.reviews() to playstore.gp_page (plain tokens, any page size)."""
+    from types import SimpleNamespace
+
+    def page(app_id, lang, country, sort, count, star, token, device=None):
+        if device is not None:  # a device segment: a thin, date-ordered slice (every 20th review)
+            items, nxt = fake_reviews(app_id, lang, country, sort, 10**7, star, None)
+            items = items[::20]
+            start = token or 0
+            return items[start : start + count], (None if start + count >= len(items) else start + count)
+        items, nxt = fake_reviews(app_id, lang, country, sort, count, star, SimpleNamespace(pos=token) if token is not None else None)
+        return items, (None if nxt.token is None else nxt.pos)
+
+    return page

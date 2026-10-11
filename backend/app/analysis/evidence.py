@@ -56,7 +56,8 @@ class Baseline:
         self.oldest = min((r.at for r in reviews), default=None)
 
 
-def collect(reviews: list[Review], base: Baseline, limit: int = 2) -> list[str]:
+def collect(reviews: list[Review], base: Baseline, limit: int = 2, by_version: bool = True) -> list[str]:
+    """`by_version`: report version concentration (off when the table itself is picked by version)."""
     found: list[tuple[float, str]] = []  # (strength, text)
     n = len(reviews)
     if n < 3:
@@ -64,7 +65,7 @@ def collect(reviews: list[Review], base: Baseline, limit: int = 2) -> list[str]:
 
     # 1. App version concentration (Google Play includes the version per review)
     versions = [r.version for r in reviews if r.version]
-    if len(versions) >= 6 and base.version_share:
+    if by_version and len(versions) >= 6 and base.version_share:
         v, c = Counter(versions).most_common(1)[0]
         p, q = c / len(versions), base.version_share.get(v, 0)
         if p >= 0.3 and q > 0 and p >= 1.25 * q:

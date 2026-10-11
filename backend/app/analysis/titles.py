@@ -18,6 +18,7 @@ from .sentiment import _analyzer
 
 MAX_LEN = 78
 CANDIDATES = 30
+CONSENSUS_SAMPLE = 600  # concerns read per issue to measure what most users say
 
 _EMOJI = re.compile(r"[\U0001F000-\U0001FAFF☀-➿️‍]+")
 _HINGLISH = re.compile(
@@ -156,14 +157,20 @@ def _score(raw: str, tidy: str, centrality: float, consensus: float = 0.0, rare:
 def problem_title(issue: Issue, vocab: set[str] | None = None) -> str:
     """`vocab`: words seen in several of the app's reviews (anything else is likely a typo)."""
     # How many members use each 2–3 word phrase: titles should say what most users say.
+    # Big issues: an even spread across the issue (it's ordered by centrality)
+    # measures the same shares at a fraction of the cost.
+    pool = issue.concerns
+    if len(pool) > CONSENSUS_SAMPLE:
+        step = len(pool) / CONSENSUS_SAMPLE
+        pool = [pool[int(k * step)] for k in range(CONSENSUS_SAMPLE)]
     df: dict[str, int] = {}
     wdf: dict[str, int] = {}
-    for c in issue.concerns:
+    for c in pool:
         for g in _ngrams(c):
             df[g] = df.get(g, 0) + 1
         for w in set(re.findall(r"[a-z']+", c.lower())):
             wdf[w] = wdf.get(w, 0) + 1
-    size = max(1, issue.size)
+    size = max(1, len(pool))
 
     best, best_score = "", -1.0
     for concern, cen in list(zip(issue.concerns, issue.centrality))[:CANDIDATES]:

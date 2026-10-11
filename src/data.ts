@@ -16,7 +16,7 @@ export const RANGES = ["1w", "1m", "3m", "6m", "1y"] as const;
 export type Range = (typeof RANGES)[number];
 
 export type Store = "play" | "app";
-export type Depth = "quick" | "standard" | "deep";
+export type Depth = "quick" | "standard" | "deep" | "all" | "current";
 
 export type Category =
   | "Crash"
@@ -59,6 +59,8 @@ export interface FeedbackRow {
   impact: number;
   /** Where/when it hurts: app version, devices, update blame, recency. */
   evidence: string[];
+  /** Per app version (version-picked reports): mentions, star sum, latest date, sentiments. */
+  byVersion?: Record<string, { n: number; stars: number; latest: string; sent: Partial<SentimentCounts> }>;
 }
 
 export type Priority = "high" | "medium" | "low";
@@ -73,13 +75,19 @@ export interface IssueReview {
   thumbs: number;
   sentiment: SentimentKey;
   concern: string;
+  version?: string | null;
 }
 
 export interface Period {
   label: string;
   start: string;
   end: string;
-  counts: SentimentCounts;
+  /** Share of the period's reviews in each sentiment (0–1); bars are 100% stacked. */
+  share: SentimentCounts;
+  /** Exact counts when every review of the period was read; null for estimates. */
+  counts: SentimentCounts | null;
+  /** Reviews behind the bar: exact count, or sampled reviews for estimates. */
+  n: number;
   estimated: boolean;
   empty: boolean;
 }
@@ -116,13 +124,28 @@ export interface AppReport {
     newest: string | null;
     exactFrom: string | null;
     featuredOnly: boolean;
+    /** Every review the store has was read (Play "all reviews" on an app below the limit). */
+    complete?: boolean;
+    /** What the feedback table covers: the versions people use now, or a time window. */
+    scope?: {
+      kind: "versions" | "period";
+      since: string;
+      /** Versions offered in the picker, newest first, and the preselected (latest) ones. */
+      versions: string[];
+      labels?: Record<string, string>;
+      default?: string[];
+      totals?: Record<string, { reviews: number; concerns: number; since: string | null }>;
+      widened: boolean;
+    } | null;
     sources: string[];
     concerns: number;
   };
+  /** Present while a long run is still downloading: this report covers the reviews analysed so far. */
+  partial?: { analyzed: number; limit: number | null };
   generatedAt: string;
   cachedAt?: number;
   domain: string | null;
-  timings: { fetchMs: number; analyzeMs: number; polishMs?: number; totalMs: number };
+  timings?: { fetchMs: number; analyzeMs: number; polishMs?: number; totalMs: number };
 }
 
 

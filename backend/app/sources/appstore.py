@@ -23,12 +23,13 @@ import logging
 import re
 import time
 import xml.etree.ElementTree as ET
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Callable
 
 import httpx
 
+from .. import scope as scopes
 from ..config import settings
 from ..links import AppRef
 from ..models import AppMeta, Depth, FetchResult, Review
@@ -45,9 +46,18 @@ STOREFRONTS = (
     "us gb ca au nz ie in sg za ph my ng ke pk ae hk gh lk bd mt jm tt bs bb ug tz zw zm bw na mu "
     "fj pg bz gy lc vc gd ag kn dm ky bm vg tc ms ai"
 ).split()
-STOREFRONTS_BY_DEPTH: dict[Depth, int] = {"quick": 12, "standard": 28, "deep": len(STOREFRONTS)}
+STOREFRONTS_BY_DEPTH: dict[Depth, int] = {"quick": 12, "standard": 28, "deep": len(STOREFRONTS), "all": len(STOREFRONTS), "current": len(STOREFRONTS)}
 RSS_PAGES = 10
+# "All reviews" also reads the RSS feed of the biggest English storefronts
+# (up to 500 recent reviews each): the most public data Apple offers.
+RSS_FRONTS_BY_DEPTH: dict[Depth, int] = {"quick": 1, "standard": 1, "deep": 1, "all": 12, "current": 12}
 ASC_LIMIT_BY_DEPTH: dict[Depth, int] = {"quick": 1000, "standard": 3000, "deep": 10000}
+
+
+def _asc_limit(depth: Depth) -> int:
+    if depth == "current":
+        return settings.current_max_reviews
+    return settings.max_reviews if depth == "all" else ASC_LIMIT_BY_DEPTH[depth]
 
 _SSR = re.compile(r'<script[^>]*id="serialized-server-data"[^>]*>(.*?)</script>', re.S)
 _ATOM = "{http://www.w3.org/2005/Atom}"
@@ -134,7 +144,10 @@ async def _rss_page(client: httpx.AsyncClient, app_id: str, cc: str, page: int) 
         rid = e.findtext(f"{_ATOM}id")
         if not content or not at or not rid:
             continue
-        out.append(Review(id=f"as:{rid}", text=content.strip(), title=e.findtext(f"{_ATOM}title") or "", rating=int(rating), at=at, source=f"app:{cc}"))
+        out.append(Review(
+            id=f"as:{rid}", text=content.strip(), title=e.findtext(f"{_ATOM}title") or "", rating=int(rating), at=at,
+            source=f"app:{cc}", version=e.findtext(f"{_IM}version") or None,
+        ))
     return out
 
 
@@ -176,11 +189,11 @@ async def _asc_reviews(client: httpx.AsyncClient, app_id: str, limit: int, progr
     return out
 
 
-async def fetch_appstore(ref: AppRef, depth: Depth, progress: Progress) -> FetchResult:
+async def fetch_appstore(ref: AppRef, depth: Depth, progress: Progress, *, on_page: Callable[[list[Review]], None] | None = None) -> FetchResult:
     limits = httpx.Limits(max_connections=64, max_keepalive_connections=64)
     async with httpx.AsyncClient(headers={"User-Agent": UA}, timeout=httpx.Timeout(12.0, connect=5.0), limits=limits, follow_redirects=True, http2=False) as client:
         lookup_task = asyncio.create_task(_lookup(client, ref))
-        asc_task = asyncio.create_task(_asc_reviews(client, ref.app_id, ASC_LIMIT_BY_DEPTH[depth], progress))
+        asc_task = asyncio.create_task(_asc_reviews(client, ref.app_id, _asc_limit(depth), progress))
 
         fronts = list(dict.fromkeys([ref.country, *STOREFRONTS[: STOREFRONTS_BY_DEPTH[depth]]]))
         done = {"n": 0}
@@ -189,14 +202,18 @@ async def fetch_appstore(ref: AppRef, depth: Depth, progress: Progress) -> Fetch
         async def track(coro):
             res = await coro
             revs = res[1] if isinstance(res, tuple) else res
-            for r in revs:
-                seen.setdefault(r.id, r)
+            fresh = [r for r in revs if r.id not in seen]
+            for r in fresh:
+                seen[r.id] = r
+            if fresh and on_page:
+                on_page(fresh)
             done["n"] += 1
             progress({"stage": "fetch", "fetched": len(seen), "target": None, "sources": done["n"]})
             return res
 
         front_tasks = [asyncio.create_task(track(_storefront(client, ref.app_id, cc))) for cc in fronts]
-        rss_tasks = [asyncio.create_task(track(_rss_page(client, ref.app_id, ref.country, p))) for p in range(1, RSS_PAGES + 1)]
+        rss_fronts = list(dict.fromkeys([ref.country, *STOREFRONTS[: RSS_FRONTS_BY_DEPTH[depth] - 1]]))
+        rss_tasks = [asyncio.create_task(track(_rss_page(client, ref.app_id, cc, p))) for cc in rss_fronts for p in range(1, RSS_PAGES + 1)]
 
         info = await lookup_task  # fail fast on a bad id
         progress({"stage": "meta", "name": info.get("trackName"), "icon": info.get("artworkUrl512") or info.get("artworkUrl100")})
@@ -220,11 +237,18 @@ async def fetch_appstore(ref: AppRef, depth: Depth, progress: Progress) -> Fetch
         histogram=hist,
     )
 
+    # Apple's public reviews mostly carry no version: the table covers a time window.
+    floor = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(days=settings.period_days)
     if asc:
-        return FetchResult(meta=meta, reviews=asc, sources=["App Store Connect API (complete history)"])
+        return FetchResult(
+            meta=meta, reviews=asc, sources=["App Store Connect API (complete history)"],
+            scope=scopes.choose(asc, None, floor) if depth == "current" else None,
+        )
+    reviews = list(seen.values())
     return FetchResult(
         meta=meta,
-        reviews=list(seen.values()),
+        reviews=reviews,
         sources=[f"App Store public reviews ({sum(1 for _, r, _ in front_results if r)} storefronts)"],
         notes=["sample:featured"],
+        scope=scopes.choose(reviews, None, floor) if depth == "current" else None,
     )

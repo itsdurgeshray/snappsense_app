@@ -10,6 +10,6 @@ export default function App() {
   const match = path.match(/^\/app\/(play|app)\/([\w.]+)(?:\?(.*))?$/);
   if (!match) return path === "/" ? <Landing /> : <NotFound />;
   const q = new URLSearchParams(match[3] ?? "");
-  const depth = (["quick", "standard", "deep"].includes(q.get("depth") ?? "") ? q.get("depth") : "standard") as Depth;
+  const depth = (["quick", "standard", "deep", "all", "current"].includes(q.get("depth") ?? "") ? q.get("depth") : "current") as Depth;
   return <Dashboard key={path} store={match[1] as Store} appId={match[2]} country={q.get("country") ?? "us"} depth={depth} />;
 }

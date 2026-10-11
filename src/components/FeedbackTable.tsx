@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { CATEGORY_STYLE, PRIORITY_RANK, type AppReport, type Category, type FeedbackRow, type Priority } from "../data";
 import { IssueReviews } from "./IssueReviews";
 
@@ -92,11 +92,33 @@ function fmt(d: string, withYear: boolean) {
   return new Date(d).toLocaleDateString(undefined, withYear ? { day: "numeric", month: "short", year: "numeric" } : { day: "numeric", month: "short" });
 }
 
-/** "From 1,249 complaints in the latest 4,000 reviews · 16 Sep – 9 Oct" */
+const DAY = 86_400_000;
+
+/**
+ * One plain line saying what the table covers, e.g.
+ * "Current versions v9.1.84 – v9.1.90 · since 21 Sep · 7,986 reviews · 2,140 complaints"
+ * or "Last 90 days · 812 reviews · 240 complaints".
+ */
 function basisLine(sample: AppReport["sample"]) {
-  const parts = [
-    `From ${sample.concerns.toLocaleString()} complaints in ${sample.featuredOnly ? `${sample.analyzed.toLocaleString()} featured App Store reviews` : `the latest ${sample.analyzed.toLocaleString()} reviews`}`,
-  ];
+  const sc = sample.scope;
+  if (sc) {
+    const counts = `${sample.analyzed.toLocaleString()} reviews · ${sample.concerns.toLocaleString()} complaints`;
+    const since = new Date(sc.since);
+    const withYear = since.getFullYear() !== new Date().getFullYear();
+    if (sc.kind === "versions") {
+      const v = sc.versions;
+      const which = v.length === 1 ? `Current version v${v[0]}` : `Current versions v${v[0]} – v${v[v.length - 1]}`;
+      return `${which} · since ${fmt(sc.since, withYear)} · ${counts}`;
+    }
+    const days = Math.round(((sample.newest ? new Date(sample.newest).getTime() : Date.now()) - since.getTime()) / DAY);
+    return `${days >= 85 ? "Last 90 days" : `Since ${fmt(sc.since, withYear)}`} · ${counts}`;
+  }
+  const scope = sample.featuredOnly
+    ? `${sample.analyzed.toLocaleString()} public App Store reviews`
+    : sample.complete
+      ? `all ${sample.analyzed.toLocaleString()} reviews`
+      : `the latest ${sample.analyzed.toLocaleString()} reviews`;
+  const parts = [`From ${sample.concerns.toLocaleString()} complaints in ${scope}`];
   if (sample.oldest && sample.newest) {
     const year = new Date().getFullYear();
     const withYear = new Date(sample.oldest).getFullYear() !== year || new Date(sample.newest).getFullYear() !== year;
@@ -111,12 +133,24 @@ export function FeedbackTable({
   sample,
   filters,
   onFilters,
+  basis,
+  versionControl,
+  versions,
+  emptyText,
 }: {
   rows: FeedbackRow[];
   reportId: string;
   sample: AppReport["sample"];
   filters: TableFilters;
   onFilters: (f: TableFilters) => void;
+  /** Summary line override (e.g. for the picked versions). */
+  basis?: string;
+  /** The version picker, shown with the other filters. */
+  versionControl?: ReactNode;
+  /** Picked versions: the reviews popup shows only these. */
+  versions?: string[];
+  /** Message when there are no rows (e.g. no version picked). */
+  emptyText?: string;
 }) {
   const [sort, setSort] = useState<{ key: SortKey; dir: 1 | -1 } | null>(null);
   const [detail, setDetail] = useState<FeedbackRow | null>(null);
@@ -148,7 +182,7 @@ export function FeedbackTable({
               Feedback Analysis Table <span className="table-toolbar__n">({visible.length})</span>
             </h2>
             <p className="section-sub">
-              {basisLine(sample)}
+              {basis ?? basisLine(sample)}
               {filtered && (
                 <button type="button" className="link-btn" onClick={() => onFilters({ category: "All", priority: "All" })}>
                   Clear filters
@@ -157,6 +191,7 @@ export function FeedbackTable({
             </p>
           </div>
           <div className="table-filters">
+            {versionControl}
             <Select
               label="Category"
               value={filters.category}
@@ -232,7 +267,7 @@ export function FeedbackTable({
               {visible.length === 0 && (
                 <tr>
                   <td colSpan={6} className="td-empty">
-                    No issues match these filters.
+                    {emptyText ?? "No issues match these filters."}
                   </td>
                 </tr>
               )}
@@ -241,7 +276,7 @@ export function FeedbackTable({
         </div>
       </div>
 
-      {detail && <IssueReviews reportId={reportId} row={detail} onClose={() => setDetail(null)} />}
+      {detail && <IssueReviews reportId={reportId} row={detail} versions={versions} onClose={() => setDetail(null)} />}
     </section>
   );
 }

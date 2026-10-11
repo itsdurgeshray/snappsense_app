@@ -1,12 +1,14 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Header } from "../components/Header";
 import { SentimentTrends } from "../components/SentimentTrends";
 import { RatingsGauge } from "../components/RatingsGauge";
 import { FeedbackTable, exportFeedbackCsv, filterRows, type TableFilters } from "../components/FeedbackTable";
 import { FeedbackCategory } from "../components/FeedbackCategory";
 import { Loader } from "../components/Loader";
+import { VersionPicker } from "../components/VersionPicker";
+import { tableFor, versionsOf } from "../versions";
 import { useReport } from "../api";
-import { STORE_LABEL, formatCompact, formatInstalls, type Depth, type Store } from "../data";
+import { STORE_LABEL, formatCompact, formatInstalls, type AppReport, type Depth, type Store } from "../data";
 import { navigate } from "../router";
 
 function AppIcon({ src, name }: { src: string | null | undefined; name: string }) {
@@ -21,9 +23,41 @@ function AppIcon({ src, name }: { src: string | null | undefined; name: string }
   );
 }
 
+/** "v2.25.1 · since 3 Oct · 4,120 reviews · 1,034 complaints" for the picked versions. */
+function versionBasis(report: AppReport, picked: string[], reviews: number, concerns: number) {
+  const sc = report.sample.scope!;
+  const label = (v: string) => `v${sc.labels?.[v] ?? v}`;
+  const ordered = sc.versions.filter((v) => picked.includes(v));
+  const which = ordered.length === 1 ? label(ordered[0]) : `${label(ordered[ordered.length - 1])} – ${label(ordered[0])}`;
+  const since = ordered.map((v) => sc.totals?.[v]?.since).filter(Boolean).sort()[0];
+  const date = since ? ` · since ${new Date(since).toLocaleDateString(undefined, { day: "numeric", month: "short" })}` : "";
+  return `${which}${date} · ${reviews.toLocaleString()} reviews · ${concerns.toLocaleString()} complaints`;
+}
+
+/** Shown while a long run keeps downloading: the report below updates by itself. */
+function RunBanner({ analyzed }: { analyzed: number }) {
+  return (
+    <div className="run-banner dash-full" role="status" aria-live="polite">
+      <span className="run-banner__spin" aria-hidden="true" />
+      <p>
+        <strong>Reading more reviews ({analyzed.toLocaleString()} so far).</strong> The report updates as they arrive.
+      </p>
+    </div>
+  );
+}
+
 export function Dashboard({ store, appId, country, depth }: { store: Store; appId: string; country: string; depth: Depth }) {
   const { report, progress, appName, appIcon, error, reload } = useReport({ store, appId, country, depth });
   const [filters, setFilters] = useState<TableFilters>({ category: "All", priority: "All" });
+  const [picked, setPicked] = useState<string[]>([]);
+  const vers = useMemo(() => (report ? versionsOf(report) : null), [report]);
+  // Opens on the latest version; a new report (e.g. partial → final) keeps the pick if it still exists.
+  useEffect(() => {
+    if (!vers) return;
+    setPicked((p) => (p.length && p.every((v) => vers.all.includes(v)) ? p : vers.latest));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [report?.generatedAt]);
+  const view = useMemo(() => (report ? tableFor(report, picked) : null), [report, picked]);
 
   const name = report?.app.name ?? appName ?? appId;
   const a = report?.app;
@@ -57,22 +91,12 @@ export function Dashboard({ store, appId, country, depth }: { store: Store; appI
             </div>
             {report && (
               <div className="dash-actions">
-                <button type="button" className="btn-ghost" onClick={() => exportFeedbackCsv(filterRows(report.feedback, filters), report.app.name)}>
+                <button type="button" className="btn-ghost" onClick={() => exportFeedbackCsv(filterRows(view?.rows ?? report.feedback, filters), report.app.name)}>
                   Export CSV
                   <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.4" aria-hidden="true">
                     <path d="M6 1.5v7M3 5.5l3 3 3-3M1.5 10.5h9" />
                   </svg>
                 </button>
-                {depth !== "deep" && (
-                  <button
-                    type="button"
-                    className="btn-ghost btn-ghost--solid"
-                    onClick={() => navigate(`/app/${store}/${appId}?country=${country}&depth=deep`)}
-                    title="Analyse up to 10,000 reviews for longer trends and rarer issues"
-                  >
-                    Deep analysis
-                  </button>
-                )}
               </div>
             )}
           </div>
@@ -95,18 +119,34 @@ export function Dashboard({ store, appId, country, depth }: { store: Store; appI
           </section>
         ) : !report ? null : (
           <div className="dash-grid">
+            {report.partial && <RunBanner analyzed={Math.max(report.partial.analyzed, progress?.fetched ?? 0)} />}
             <SentimentTrends key={report.id + report.generatedAt} trends={report.trends} />
             <RatingsGauge ratings={report.ratings} basis={report.ratingsBasis} />
             <div className="dash-full">
-              <FeedbackCategory categories={report.categories} />
+              <FeedbackCategory categories={view?.categories ?? report.categories} emptyText={vers && !picked.length ? "Pick one or more versions in the table below." : undefined} />
             </div>
             <div className="dash-full">
               <FeedbackTable
-                rows={report.feedback}
+                rows={view?.rows ?? report.feedback}
                 reportId={report.id}
                 sample={report.sample}
                 filters={filters}
                 onFilters={setFilters}
+                basis={vers && view ? (picked.length ? versionBasis(report, picked, view.reviews, view.concerns) : "No version selected") : undefined}
+                emptyText={vers && !picked.length ? "Pick one or more versions to see their issues." : undefined}
+                versions={vers ? picked : undefined}
+                versionControl={
+                  vers && (
+                    <VersionPicker
+                      versions={vers.all}
+                      labels={vers.labels}
+                      latest={vers.latest}
+                      counts={Object.fromEntries(vers.all.map((v) => [v, report.sample.scope?.totals?.[v]?.reviews ?? 0]))}
+                      picked={picked}
+                      onChange={setPicked}
+                    />
+                  )
+                }
               />
             </div>
           </div>

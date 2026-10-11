@@ -73,7 +73,9 @@ def test_trends_never_invent_far_history():
 def test_sample_sources_are_flagged_estimated():
     f = make_fetch(coverage=False)
     report, _, _ = analyze(f, now=NOW)
-    assert all(b["estimated"] for b in report["trends"]["1w"])
+    week = report["trends"]["1w"]
+    assert any(b["estimated"] for b in week) and all(b["estimated"] or b["empty"] for b in week)
+    assert all(b["counts"] is None for b in week if b["estimated"])  # no invented volumes
 
 
 def test_buckets_cover_ranges():
@@ -177,3 +179,148 @@ def test_all_time_ratings_come_from_store_histogram():
     report, _, _ = analyze(f, now=NOW)
     assert report["ratingsBasis"] == "store"
     assert [report["ratings"][str(s)] for s in (1, 2, 3, 4, 5)] == f.meta.histogram
+
+
+def test_sampled_fitting_still_counts_every_concern(monkeypatch):
+    """Above the fitting caps, clusters are learned on a sample but every concern is still assigned."""
+    from app.analysis import cluster, pipeline
+    from app.analysis.pipeline import analyze
+
+    from .factories import make_fetch
+
+    fetch = make_fetch(per_star=80)
+    exact, _, _ = analyze(fetch)
+    monkeypatch.setattr(pipeline, "FIT_SAMPLE", 60)
+    monkeypatch.setattr(cluster, "KMEANS_FIT", 10)
+    monkeypatch.setattr(cluster, "FR_FIT", 1)
+    sampled, reviews, _ = analyze(fetch)
+    assert sampled["sample"]["concerns"] == exact["sample"]["concerns"]
+    assert {c["label"]: c["count"] for c in sampled["categories"]} == {c["label"]: c["count"] for c in exact["categories"]}
+    assert all(len(reviews[row["id"]]) == row["count"] for row in sampled["feedback"])
+
+
+def test_year_trend_from_calibrated_sample():
+    """Older months come from a sample whose star mix is corrected in the exact window."""
+    from datetime import timedelta
+
+    f = make_fetch(per_star=200, hours_per_review={s: 1 for s in range(1, 6)})  # ~8 days, every star complete
+    # The sample over-represents 1★ 3:1 everywhere, and spans the whole year.
+    sample = []
+    for day in range(360):
+        at = NOW - timedelta(days=day, hours=1)
+        sample += [(at, 1)] * 9 + [(at, 2)] * 3 + [(at, 3)] * 3 + [(at, 4)] * 3 + [(at, 5)] * 3
+    f.trend_sample = sample
+    report, _, _ = analyze(f, now=NOW)
+    year = report["trends"]["1y"]
+    old = [b for b in year[:-1] if b["estimated"]]
+    assert len(old) >= 10 and not any(b["empty"] for b in year[:-1])
+    for b in old:
+        assert abs(sum(b["share"].values()) - 1) < 0.01 and b["counts"] is None
+    # Calibrated: the exact window has every star equally often, so the 3:1 skew is undone.
+    frustrated = sum(v for k, v in old[0]["share"].items() if k in ("frustrated", "angry"))
+    delighted = sum(v for k, v in old[0]["share"].items() if k in ("delighted", "happy"))
+    assert abs(frustrated - delighted) < 0.15
+
+
+def test_year_trend_leaves_months_without_every_star_empty():
+    """If the sample has no 1★ reviews for a month (the feed doesn't reach back that far for 1★), don't guess."""
+    from datetime import timedelta
+
+    f = make_fetch(per_star=200, hours_per_review={s: 1 for s in range(1, 6)})
+    sample = []
+    for day in range(360):
+        at = NOW - timedelta(days=day, hours=1)
+        sample += [(at, s) for s in range(2, 6) for _ in range(3)] + ([(at, 1)] * 3 if day < 120 else [])
+    f.trend_sample = sample
+    report, _, _ = analyze(f, now=NOW)
+    year = report["trends"]["1y"]
+    assert year[0]["empty"] and year[1]["empty"]  # 11-12 months ago: no 1★ in the sample
+    assert not year[-3]["empty"] and year[-3]["estimated"]
+
+
+def _year_counts(per_day: dict[int, int], days: int):
+    from datetime import timedelta
+
+    return {st: {(NOW - timedelta(days=d)).date().isoformat(): n for d in range(days)} for st, n in per_day.items()}
+
+
+def test_trend_from_exact_counts_covers_the_year_with_real_volumes():
+    """An app read completely for the year: every month exact, with real counts."""
+    from collections import Counter
+
+    f = make_fetch(per_star=366, hours_per_review={s: 24 for s in range(1, 6)})  # one review per star per day
+    per_day = {st: Counter(r.at.date().isoformat() for r in f.reviews if r.rating == st) for st in range(1, 6)}
+    f.trend_counts = {st: dict(c) for st, c in per_day.items()}
+    f.trend_coverage = {s: None for s in range(1, 6)}
+    report, _, _ = analyze(f, now=NOW)
+    year = report["trends"]["1y"]
+    assert all(not b["empty"] and not b["estimated"] for b in year)
+    assert all(b["counts"] and 5 * 27 <= sum(b["counts"].values()) <= 5 * 32 for b in year[:-1])
+
+
+def test_older_months_estimated_from_a_calibrated_device_sample():
+    """Exact for 40 days; a 1-in-20 date-ordered sample reaches the rest of the year with the same star mix."""
+    from collections import Counter
+    from datetime import timedelta
+
+    from app.models import Review
+
+    from .factories import TEXTS
+
+    f = make_fetch(per_star=1)
+    rates = {1: 4, 2: 2, 3: 2, 4: 4, 5: 8}  # true reviews per day, steady all year
+    f.reviews = [
+        Review(id=f"{st}-{d}-{k}", text=TEXTS[st][k % 3], rating=st, at=NOW - timedelta(days=d, hours=1 + k))
+        for d in range(40) for st, n in rates.items() for k in range(n)
+    ]
+    f.trend_counts = {st: dict(Counter(r.at.date().isoformat() for r in f.reviews if r.rating == st)) for st in range(1, 6)}
+    cut = NOW - timedelta(days=40)
+    f.trend_coverage = {s: cut for s in range(1, 6)}
+    f.trend_sample = [
+        (NOW - timedelta(days=d, hours=2), st) for d in range(365) for st, n in rates.items() for k in range(n) if (d * n + k) % 20 == 0
+    ]
+    f.trend_sample_reach = {st: None for st in range(1, 6)}
+    report, _, _ = analyze(f, now=NOW)
+    year = report["trends"]["1y"]
+    exact = next(b for b in reversed(year) if not b["estimated"] and not b["empty"])["share"]
+    for b in year[:-2]:
+        assert b["estimated"] and not b["empty"]
+        assert all(abs(b["share"][k] - exact[k]) < 0.08 for k in exact)  # steady app: same mix as the exact window
+
+
+def test_a_star_missing_from_the_sample_is_carried_not_dropped():
+    """A star the sample has nothing for (Play returns nothing for some star/device pairs) keeps its
+    recent rate instead of vanishing; if the dominant star is missing, the month is left empty."""
+    from datetime import timedelta
+
+    f = make_fetch(per_star=50, hours_per_review={s: 1 for s in range(1, 6)})
+    f.trend_counts = {st: {(NOW - timedelta(days=d)).date().isoformat(): 12 for d in range(3)} for st in range(1, 6)}
+    f.trend_coverage = {s: NOW - timedelta(days=3) for s in range(1, 6)}
+    base = [(NOW - timedelta(days=d, hours=2), st) for d in range(300) for st in (1, 2, 3, 5)]  # no 4★ at all
+    f.trend_sample = base
+    f.trend_sample_reach = {st: None for st in (1, 2, 3, 5)}
+    report, _, _ = analyze(f, now=NOW)
+    old = [b for b in report["trends"]["1y"][:-2] if b["estimated"]]
+    assert old and all(b["share"]["happy"] > 0.05 for b in old)  # 4★ (mostly "happy") still present
+
+    f.trend_sample = [x for x in base if x[1] != 5]  # now the dominant 5★ is missing
+    f.trend_sample_reach = {st: None for st in (1, 2, 3)}
+    report, _, _ = analyze(f, now=NOW)
+    assert all(b["empty"] for b in report["trends"]["1y"][:-2])
+
+
+def test_thin_sample_still_fills_every_month_since_the_first_review():
+    from datetime import datetime, timedelta
+
+    f = make_fetch(per_star=50)
+    f.trend_counts = _year_counts({s: 5 for s in range(1, 6)}, 20)
+    f.trend_coverage = {s: NOW - timedelta(days=20) for s in range(1, 6)}
+    # Only ~1 sampled review per star every 10 days, and no 2★ at all: thin, gappy.
+    sample = [(NOW - timedelta(days=d, hours=3), st) for d in range(0, 300, 10) for st in (1, 3, 4, 5)]
+    f.trend_sample = sample
+    report, _, _ = analyze(f, now=NOW)
+    year = report["trends"]["1y"]
+    first = min(at for at, _ in sample)
+    for b in year:
+        start = datetime.fromisoformat(b["end"])
+        assert b["empty"] == (start <= first), b  # empty only before the first sampled review

@@ -7,6 +7,7 @@ export interface Progress {
   stage: "connecting" | "queued" | "meta" | "fetch" | "analyze" | "polish";
   fetched?: number;
   target?: number | null;
+  limit?: number;
   name?: string;
   icon?: string | null;
   reviews?: number;
@@ -125,12 +126,34 @@ export function useReport({ store, appId, country, depth }: Params) {
   return { ...state, reload };
 }
 
-/** Every review behind one feedback row, loaded when its detail view opens. */
-export async function fetchIssueReviews(reportId: string, issueId: string, signal?: AbortSignal): Promise<IssueReview[]> {
-  const res = await fetch(`${BASE}/api/reviews?report=${encodeURIComponent(reportId)}&issue=${encodeURIComponent(issueId)}`, { signal });
+export interface ReviewPage {
+  /** Reviews behind the issue, and how many match the current search/filter. */
+  total: number;
+  matched: number;
+  /** Count per star rating ("1" … "5") across the whole issue. */
+  stars: Record<string, number>;
+  reviews: IssueReview[];
+}
+
+export interface ReviewQuery {
+  offset?: number;
+  limit?: number;
+  q?: string;
+  stars?: number | null;
+  sort?: "relevant" | "newest" | "helpful";
+  versions?: string[];
+}
+
+/** One page of the reviews behind a feedback row (paged, searched and sorted on the server). */
+export async function fetchIssueReviews(reportId: string, issueId: string, query: ReviewQuery = {}, signal?: AbortSignal): Promise<ReviewPage> {
+  const params = new URLSearchParams({ report: reportId, issue: issueId, offset: String(query.offset ?? 0), limit: String(query.limit ?? 40), sort: query.sort ?? "relevant" });
+  if (query.q?.trim()) params.set("q", query.q.trim());
+  if (query.stars) params.set("stars", String(query.stars));
+  if (query.versions?.length) params.set("versions", query.versions.join(","));
+  const res = await fetch(`${BASE}/api/reviews?${params}`, { signal });
   const body = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(body.detail ?? "Couldn't load these reviews.");
-  return body.reviews as IssueReview[];
+  return body as ReviewPage;
 }
 
 /** Sends a "Give feedback" message to the server. */

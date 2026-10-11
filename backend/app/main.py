@@ -3,7 +3,7 @@
     POST /api/analyze              start (or reuse) an analysis → job id or cached report
     GET  /api/jobs/{id}            current job state
     GET  /api/jobs/{id}/events     live progress + results (Server-Sent Events)
-    GET  /api/reviews?report=…&issue=…   every review behind one feedback row
+    GET  /api/reviews?report=…&issue=…   the reviews behind one feedback row (paged, searchable)
     GET  /api/resolve?url=…        validate/parse a store link
     POST /api/feedback             store a "Give feedback" message
     GET  /api/health               service status
@@ -27,6 +27,7 @@ from .cache import ReportCache
 from .config import settings
 from .jobs import JobManager
 from .links import AppRef, LinkError, parse_link
+from .store import ReviewStore
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 log = logging.getLogger("snappsense")
@@ -34,10 +35,11 @@ log = logging.getLogger("snappsense")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    app.state.jobs = JobManager(ReportCache(settings.cache_path, settings.cache_ttl_seconds))
+    app.state.jobs = JobManager(ReportCache(settings.cache_path, settings.cache_ttl_seconds), ReviewStore(settings.store_path, settings.store_max_reviews))
     yield
     app.state.jobs.pool.shutdown(wait=False, cancel_futures=True)
     app.state.jobs.cpu.shutdown(wait=False, cancel_futures=True)
+    app.state.jobs.io.shutdown(wait=True)  # let a pending store write finish
 
 
 app = FastAPI(title="Snappsense API", version="1.0.0", lifespan=lifespan)
@@ -67,7 +69,7 @@ class AnalyzeBody(BaseModel):
     store: Literal["play", "app"] | None = None
     appId: str | None = None
     country: str | None = None
-    depth: Literal["quick", "standard", "deep"] = "standard"
+    depth: Literal["quick", "standard", "deep", "all", "current"] = "current"
     refresh: bool = False
 
 
@@ -110,6 +112,8 @@ async def health(request: Request):
         "localModel": settings.local_model if await polish.available() else None,
         "appStoreConnect": settings.asc_enabled,
         "cachedReports": jobs.cache.count(),
+        "storedReviews": jobs.store.count() if jobs.store else 0,
+        "maxReviews": settings.max_reviews,
         "activeJobs": len(jobs.active),
     }
 
@@ -169,8 +173,12 @@ async def job_events(job_id: str, request: Request):
 
 
 @app.get("/api/reviews")
-async def issue_reviews(report: str, issue: str, request: Request):
-    rows = request.app.state.jobs.cache.get_reviews(report, issue)
-    if rows is None:
+async def issue_reviews(
+    report: str, issue: str, request: Request, offset: int = 0, limit: int = 50, q: str = "", stars: int | None = None, sort: str = "relevant",
+    versions: str = "",
+):
+    picked = [v for v in versions.split(",") if v] or None
+    page = request.app.state.jobs.cache.get_reviews(report, issue, offset, limit, q, stars, sort, picked)
+    if page is None:
         raise HTTPException(status_code=404, detail="These reviews have expired — reload the report.")
-    return {"issue": issue, "count": len(rows), "reviews": rows}
+    return {"issue": issue, **page}

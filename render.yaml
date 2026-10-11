@@ -20,3 +20,20 @@ services:
         value: ^https://snappsense-app(-[a-z0-9-]+)*\.vercel\.app$
       - key: SNAPPSENSE_LOCAL_MODEL
         value: ""
+      # Sized for the free plan's 512 MB: fewer reviews per run, smaller and
+      # fewer simultaneous Play pages, and a shorter trend budget.
+      - key: SNAPPSENSE_CURRENT_MAX
+        value: "20000"
+      - key: SNAPPSENSE_PLAY_PAGE
+        value: "2000"
+      - key: SNAPPSENSE_PLAY_INFLIGHT
+        value: "2"
+      - key: SNAPPSENSE_TREND_BUDGET
+        value: "35"
+      - key: SNAPPSENSE_TREND_LANES
+        value: "2"
+      - key: SNAPPSENSE_MAX_REVIEWS
+        value: "50000"
+      # Fewer malloc arenas: noticeably lower memory for threaded Python on Linux.
+      - key: MALLOC_ARENA_MAX
+        value: "2"

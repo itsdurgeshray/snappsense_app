@@ -4,10 +4,13 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
+
+if TYPE_CHECKING:
+    from .scope import Scope
 
 Store = Literal["play", "app"]
-Depth = Literal["quick", "standard", "deep"]
+Depth = Literal["quick", "standard", "deep", "all", "current"]
 
 SENTIMENTS = ("delighted", "happy", "neutral", "angry", "frustrated")
 
@@ -51,3 +54,16 @@ class FetchResult:
     # the shard reached the end of history. Missing entirely = not a
     # time-complete source (e.g. App Store featured reviews).
     coverage: dict[int, datetime | None] | None = None
+    # Coverage of the review store after this run (it can reach further back
+    # than this run's own reviews when stored history was reused).
+    store_coverage: dict[int, datetime | None] | None = None
+    # What the feedback table covers ("current" runs): see scope.py.
+    scope: "Scope | None" = None
+    # (date, stars) sampled across the year for the sentiment trend (trends.py).
+    trend_sample: list[tuple[datetime, int]] | None = None
+    # Per star with sampled reviews: the sample is complete from this date on (None = whole history).
+    trend_sample_reach: dict[int, datetime | None] | None = None
+    # Exact reviews per day ("YYYY-MM-DD") for each star, counted back as far as
+    # the trend budget allowed, and how far back each star's counts are complete.
+    trend_counts: dict[int, dict[str, int]] | None = None
+    trend_coverage: dict[int, datetime | None] | None = None

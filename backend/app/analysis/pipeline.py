@@ -1,10 +1,21 @@
 """Turn fetched reviews into the report the dashboard renders.
 
 Pure CPU work: runs in a worker thread so the event loop keeps streaming
-progress. ~0.5–1 s for 4,000 reviews.
+progress.
+
+Cost model, so huge apps stay fast and fit in a small server's memory:
+
+* per-review work (features.py) is linear and done once per review, usually
+  while the download is still running;
+* everything else is bounded: the semantic space is fitted on a sample of at
+  most FIT_SAMPLE reviews, clustering is fitted on a sample per category and
+  then assigns every concern, and titles read a sample of each issue. Counts,
+  shares, trends and review lists always use every review.
 
 The feedback table only lists *concerns* — problems and feature requests a
-product team should act on. Praise never appears in it, and the category
+product team should act on — from the reviews in the report's scope (by
+default: the versions people use now, see scope.py). Trends use every
+fetched review. Praise never appears in it, and the category
 breakdown is computed from the same concerns, so every category shown there
 has at least one row in the table.
 """
@@ -12,15 +23,20 @@ has at least one row in the table.
 from __future__ import annotations
 
 import re
+import zlib
 from collections import Counter, defaultdict
 from datetime import datetime, timezone
 
 from ..models import SENTIMENTS, FetchResult, Review
-from . import categorize, cluster, evidence, sentiment, trends
+from . import categorize, cluster, evidence, trends
+from .features import Feat, extract, full_text
 from .solutions import domain_for, match as match_play, suggest
 from .titles import title as make_title
 
 MAX_ISSUES = 20
+# Bump when the report's meaning or shape changes: cached reports from older code are then ignored.
+SCHEMA = 4
+FIT_SAMPLE = 12000  # reviews used to learn the app's vocabulary / semantic space
 MIN_FR_SIZE = 2  # a one-off request isn't a trend (unless it's all there is)
 _STAR_DEFAULT = {1: "frustrated", 2: "angry", 3: "neutral", 4: "happy", 5: "delighted"}
 # How much a category hurts the business, all else equal.
@@ -84,31 +100,70 @@ def _merge_same_cause(issues: list[cluster.Issue], vocab: set[str], domain: str 
     return out
 
 
-def _full(r: Review) -> str:
-    return f"{r.title}. {r.text}" if r.title else r.text
+def _sample(reviews: list[Review], n: int) -> list[Review]:
+    """A uniform sample that is stable as reviews arrive: chosen by a hash of
+    each review's id, so a refresh with a few new reviews keeps (almost) the
+    same sample and the report doesn't shuffle."""
+    return reviews if len(reviews) <= n else sorted(reviews, key=lambda r: zlib.crc32(r.id.encode()))[:n]
 
 
-def analyze(fetch: FetchResult, now: datetime | None = None) -> tuple[dict, dict[str, list[dict]], list[tuple[str, cluster.Issue, str]]]:
-    """Returns (report, reviews_by_issue_id, polish_input)."""
+def _scope_dict(scope, scoped: list[Review], concerns_by_cat) -> dict | None:
+    if scope is None:
+        return None
+    out = scope.to_dict()
+    if scope.kind == "versions":
+        # Reviews and complaints per version, for the picker and the table's summary line.
+        totals = {v: {"reviews": 0, "concerns": 0, "since": None} for v in scope.versions}
+        dates: dict[str, list] = {v: [] for v in scope.versions}
+        for r in scoped:
+            if r.version in totals:
+                totals[r.version]["reviews"] += 1
+                dates[r.version].append(r.at)
+        for v, ds in dates.items():
+            if ds:
+                ds.sort()
+                totals[v]["since"] = ds[int(0.02 * len(ds))].date().isoformat()  # release start, ignoring early betas
+        for revs, _, _ in concerns_by_cat.values():
+            for r in revs:
+                if r.version in totals:
+                    totals[r.version]["concerns"] += 1
+        out["totals"] = totals
+    return out
+
+
+def analyze(
+    fetch: FetchResult, now: datetime | None = None, feats: dict[str, Feat] | None = None
+) -> tuple[dict, dict[str, list[dict]], list[tuple[str, cluster.Issue, str]]]:
+    """Returns (report, reviews_by_issue_id, polish_input).
+
+    `feats`: per-review results computed earlier (keyed by review id); any
+    review missing from it is analysed here.
+    """
     now = now or datetime.now(timezone.utc).replace(tzinfo=None)
     reviews = [r for r in fetch.reviews if 1 <= r.rating <= 5]
     meta = fetch.meta
+    feats = feats if feats is not None else {}
 
-    # 1. Per-review sentiment, category and concern extraction
+    # 1. Per-review sentiment, category and concern (cached per review)
+    scope = fetch.scope
     labelled: list[tuple[Review, str]] = []
+    scoped: list[Review] = []  # the reviews the feedback table is about
     sent_by_id: dict[str, str] = {}
     concerns_by_cat: dict[str, tuple[list[Review], list[str], list[str | None]]] = defaultdict(lambda: ([], [], []))
     for r in reviews:
-        text = _full(r)
-        s = sentiment.label(sentiment.score(text, r.rating))
-        labelled.append((r, s))
-        sent_by_id[r.id] = s
-        cat = categorize.classify(text, s)
-        if categorize.is_concern(text, cat, s):
-            revs, cons, feats = concerns_by_cat[cat]
+        f = feats.get(r.id)
+        if f is None:
+            f = feats[r.id] = extract(r)
+        labelled.append((r, f.sentiment))
+        sent_by_id[r.id] = f.sentiment
+        if scope is not None and not scope.includes(r):
+            continue
+        scoped.append(r)
+        if f.concern is not None:
+            revs, cons, frs = concerns_by_cat[f.category]
             revs.append(r)
-            cons.append(categorize.concern(text, cat))
-            feats.append(categorize.feature_request(text) if cat == "Feature Request" else None)
+            cons.append(f.concern)
+            frs.append(f.feature)
 
     star_counts = Counter(r.rating for r in reviews)
     weights = _star_weights(star_counts, meta.histogram)
@@ -139,12 +194,13 @@ def analyze(fetch: FetchResult, now: datetime | None = None) -> tuple[dict, dict
 
     # 3. Issues: cluster each category's concerns in a semantic space fitted
     #    on this app's own reviews.
-    vocab_df = Counter(w for r in reviews for w in set(re.findall(r"[a-z]+", r.text.lower())))
+    fit = _sample(reviews, FIT_SAMPLE)
+    vocab_df = Counter(w for r in fit for w in set(re.findall(r"[a-z]+", r.text.lower())))
     vocab = {w for w, n in vocab_df.items() if n >= 3}  # words in 3+ reviews: anything else is likely a typo
     domain = domain_for(meta.genre)
     issues_by_cat: dict[str, list[cluster.Issue]] = {}
     if concerns_by_cat:
-        embedder = cluster.Embedder([_full(r) for r in reviews], meta.name)
+        embedder = cluster.Embedder([full_text(r) for r in fit], meta.name)
         for cat in categorize.ACTIONABLE:
             if cat not in concerns_by_cat:
                 continue
@@ -164,9 +220,21 @@ def analyze(fetch: FetchResult, now: datetime | None = None) -> tuple[dict, dict
         return float(issue.size)
 
     # Every category gets its biggest issue; remaining slots go by size.
-    chosen: list[cluster.Issue] = [max(v, key=weight) for v in issues_by_cat.values()]
-    rest = sorted((i for v in issues_by_cat.values() for i in v if i not in chosen and i.size >= 2), key=weight, reverse=True)
-    chosen += rest[: max(0, MAX_ISSUES - len(chosen))]
+    def pick(size) -> list[cluster.Issue]:
+        live = {cat: [i for i in v if size(i) > 0] for cat, v in issues_by_cat.items()}
+        top = [max(v, key=size) for v in live.values() if v]
+        rest = sorted((i for v in live.values() for i in v if i not in top and size(i) >= 2), key=size, reverse=True)
+        return top + rest[: max(0, MAX_ISSUES - len(top))]
+
+    chosen: list[cluster.Issue] = pick(weight)
+    versioned = scope is not None and scope.kind == "versions"
+    if versioned:
+        # The browser re-ranks rows for whichever versions are picked, so send
+        # the top issues of every version (issues are clustered once, across them).
+        for v in scope.versions:
+            for issue in pick(lambda i, v=v: sum(r.version == v for r in i.reviews)):
+                if issue not in chosen:
+                    chosen.append(issue)
     chosen.sort(key=weight, reverse=True)
 
     # 4. Category breakdown from the same concerns the table shows.
@@ -178,7 +246,7 @@ def analyze(fetch: FetchResult, now: datetime | None = None) -> tuple[dict, dict
     ]
 
     # 5. Rows + full review lists (served on demand by the API)
-    baseline = evidence.Baseline(reviews)
+    baseline = evidence.Baseline(scoped)
     feedback: list[dict] = []
     issue_reviews: dict[str, list[dict]] = {}
     polish_input: list[tuple[str, cluster.Issue, str]] = []
@@ -191,13 +259,26 @@ def analyze(fetch: FetchResult, now: datetime | None = None) -> tuple[dict, dict
             "category": issue.category,
             "feedback": headline,
             "solution": suggest(issue, headline, domain),
-            "evidence": evidence.collect(issue.reviews, baseline),
+            "evidence": evidence.collect(issue.reviews, baseline, by_version=not versioned),
             "count": issue.size,
-            "share": round(100 * issue.size / max(1, len(reviews)), 1),
+            "share": round(100 * issue.size / max(1, len(scoped)), 1),
             "sentiment": sents.most_common(1)[0][0],
             "avgRating": round(sum(r.rating for r in issue.reviews) / issue.size, 2),
             "latest": max(r.at for r in issue.reviews).date().isoformat(),
         })
+        if versioned:
+            # Per-version stats, so picking versions re-ranks the table instantly.
+            by_v: dict[str, dict] = {}
+            for r in issue.reviews:
+                d = by_v.setdefault(r.version, {"n": 0, "stars": 0, "latest": "", "sent": {}})
+                d["n"] += 1
+                d["stars"] += r.rating
+                day = r.at.date().isoformat()
+                if day > d["latest"]:
+                    d["latest"] = day
+                s_ = sent_by_id[r.id]
+                d["sent"][s_] = d["sent"].get(s_, 0) + 1
+            feedback[-1]["byVersion"] = by_v
         issue_reviews[iid] = [
             {
                 "text": r.text,
@@ -207,6 +288,7 @@ def analyze(fetch: FetchResult, now: datetime | None = None) -> tuple[dict, dict
                 "thumbs": r.thumbs,
                 "sentiment": sent_by_id[r.id],
                 "concern": c,
+                "version": r.version,
             }
             for r, c in zip(issue.reviews, issue.concerns)
         ]
@@ -215,17 +297,18 @@ def analyze(fetch: FetchResult, now: datetime | None = None) -> tuple[dict, dict
     _priorities(feedback, [weight(i) for i in chosen])
 
     # 6. Trends
-    trend = trends.build(labelled, fetch.coverage, meta.histogram, weights, now)
+    trend = trends.build(labelled, fetch.coverage, meta.histogram, weights, now, fetch.trend_sample, fetch.trend_counts, fetch.trend_coverage, fetch.trend_sample_reach)
 
     exact_from = None
     if fetch.coverage is not None:
         cuts = [c for c in fetch.coverage.values() if c is not None]
         exact_from = max(cuts).isoformat() if cuts else "all"
-    dates = [r.at for r in reviews]
+    dates = [r.at for r in scoped]
     positive = totals["delighted"] + totals["happy"]
     tot = sum(totals.values()) or 1
 
     report = {
+        "schema": SCHEMA,
         "store": meta.store,
         "appId": meta.app_id,
         "country": meta.country,
@@ -251,12 +334,15 @@ def analyze(fetch: FetchResult, now: datetime | None = None) -> tuple[dict, dict
         "feedback": feedback,
         "trends": trend,
         "sample": {
-            "analyzed": len(reviews),
+            "analyzed": len(scoped),
+            "fetched": len(reviews),
+            "scope": _scope_dict(scope, scoped, concerns_by_cat),
             "concerns": sum(len(v[0]) for v in concerns_by_cat.values()),
             "oldest": min(dates).isoformat() if dates else None,
             "newest": max(dates).isoformat() if dates else None,
             "exactFrom": exact_from,
             "featuredOnly": "sample:featured" in fetch.notes,
+            "complete": "complete" in fetch.notes,  # every review the store has (Play)
             "sources": fetch.sources,
         },
         "domain": domain,
