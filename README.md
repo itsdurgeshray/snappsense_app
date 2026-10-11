@@ -51,6 +51,15 @@ The table is built **per app version** (`backend/app/scope.py`), with a version 
 - Everything arrives in one report from the loading screen (no partial reports); the biggest apps take ~20–25 s locally, most apps a few seconds.
 - Each star rating maps to sentiments with the mix observed in the analysed reviews.
 
+## Content (Sanity)
+
+Marketing content lives in Sanity (project `1lvtpppu`, dataset `production`); the Studio is in `studio/` (see `studio/README.md`).
+
+- **Editable:** homepage and any landing page (built from sections: hero, moving-words strip, text, image + text, feature grid, stats, FAQ, quote, call to action, latest posts), blog posts (`/blogs`, `/blogs/<slug>`, RSS at `/blogs/rss.xml`), Privacy/Terms/404, header/footer links, legal note, default SEO, announcement banner, loading-screen messages.
+- **How it ships:** `npm run build` builds the app, renders every page to static HTML with the published content (`scripts/prerender.mjs`), and writes `sitemap.xml`. Publishing in Sanity calls a Vercel deploy hook, so edits are live in ~1 minute. If Sanity is unreachable, the build uses the built-in content (`src/content/defaults.ts`).
+- **Routes:** `/` and `/<page>` (Sanity pages), `/blogs`, `/blogs/<post>`, `/app/<store>/<id>` (the dashboard, rendered in the browser; Vercel rewrites it to `app-shell.html`). Old `/#/app/…` links redirect.
+- **Local dev:** `npm run dev` reads published content through a proxy at `/sanity`; `npm run build && npm run preview` serves the prerendered site.
+
 ## Large apps ("Analyse all reviews")
 
 Depths: quick 1k · standard 4k · deep 10k · **all**: every review, up to `SNAPPSENSE_MAX_REVIEWS` (default 50,000; memory peaks at ~155 MB + ~3 MB per 1,000 reviews).

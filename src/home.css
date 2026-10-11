@@ -120,3 +120,7 @@
     animation-iteration-count: 1 !important;
   }
 }
+
+.landing__legal p {
+  margin: 0;
+}

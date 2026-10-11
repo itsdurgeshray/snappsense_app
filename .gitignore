@@ -31,3 +31,11 @@ backend/.venv/
 backend/data/
 __pycache__/
 .pytest_cache/
+
+# prerender
+dist-ssr
+
+# Sanity Studio
+studio/node_modules
+studio/dist
+studio/.sanity

@@ -8,11 +8,11 @@ function Sparkle() {
   );
 }
 
-export function Marquee({ reverse = false }: { reverse?: boolean }) {
+export function Marquee({ reverse = false, words = WORDS }: { reverse?: boolean; words?: string[] }) {
   return (
     <div className={`marquee${reverse ? " marquee--reverse" : ""}`} aria-hidden="true">
       <div className="marquee__track">
-        {[...WORDS, ...WORDS, ...WORDS, ...WORDS].map((word, i) => (
+        {Array.from({ length: Math.max(4, Math.ceil(12 / words.length)) }, () => words).flat().map((word, i) => (
           <span className="marquee__item" key={i}>
             {word}
             <Sparkle />

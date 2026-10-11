@@ -1,39 +1,19 @@
 import { useEffect, useState } from "react";
 import type { Progress } from "../api";
 import { MARK_ARC, MARK_CENTER, MARK_DASHES, MARK_SQUARE } from "./Logo";
+import { useContent } from "../content/context";
 
 /**
- * What we say while working. Each stage walks through its lines (one every
- * few seconds) and holds on the last, so a ~30 s run never repeats itself.
+ * What we say while working (editable in Sanity: "Loading messages"). Each
+ * stage walks through its lines, one every few seconds, and holds on the
+ * last, so a long run never repeats itself. "{app}" becomes the app's name.
  */
-const SCRIPT: Record<"connect" | "fetch" | "analyze", (name: string) => string[]> = {
-  connect: () => ["Connecting to the store", "Waking up the analysis engine", "The first run after a quiet spell takes a little longer", "Still warming up — hang tight"],
-  fetch: (name) => [
-    name ? `Found ${name}` : "Found the app",
-    "Collecting the latest reviews",
-    "Finding the app versions people use now",
-    "Reading back to when those versions came out",
-    "Covering every rating, 1★ to 5★",
-  ],
-  analyze: () => [
-    "Reading the mood of every review",
-    "Separating complaints from praise",
-    "Spotting crashes, bugs and payment issues",
-    "Grouping complaints that share a root cause",
-    "Telling feature requests apart",
-    "Writing a one-line summary for each issue",
-    "Checking which versions and devices are affected",
-    "Ranking issues by how many people they hit",
-    "Matching each issue with a suggested fix",
-    "Building your dashboard",
-    "Almost there",
-  ],
-};
+type Stage = "connect" | "fetch" | "analyze";
 const LINE_MS = 3000;
 const SPIN_MS = 6200; // spinner time between app-icon reveals
 const ICON_MS = 3400; // how long the app icon holds
 
-function group(stage: Progress["stage"]): keyof typeof SCRIPT {
+function group(stage: Progress["stage"]): Stage {
   return stage === "analyze" || stage === "polish" ? "analyze" : stage === "meta" || stage === "fetch" ? "fetch" : "connect";
 }
 
@@ -45,7 +25,8 @@ function group(stage: Progress["stage"]): keyof typeof SCRIPT {
 export function Loader({ progress, icon, name }: { progress: Progress | null; icon: string | null; name: string }) {
   const stage = progress?.stage ?? "connecting";
   const g = group(stage);
-  const lines = SCRIPT[g](name);
+  const script = useContent().settings.loader;
+  const lines = script[g].map((l) => l.replace(/\{app\}/g, name || "the app"));
 
   // Advance through this stage's lines, restarting when the stage changes.
   const [line, setLine] = useState(0);

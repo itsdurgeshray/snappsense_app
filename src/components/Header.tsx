@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Logo } from "./Logo";
 import { FeedbackModal } from "./FeedbackModal";
 import { navigate } from "../router";
+import { useContent } from "../content/context";
 
 export interface NavItem {
   id: string;
@@ -22,6 +23,7 @@ export function Header({ tone, nav, floating = false }: { tone: "light" | "dark"
   const [menu, setMenu] = useState(false);
   const [scrolled, setScrolled] = useState(false);
   const [active, setActive] = useState<string | null>(null);
+  const links = useContent().settings.headerLinks;
 
   useEffect(() => {
     if (!floating) return;
@@ -87,6 +89,11 @@ export function Header({ tone, nav, floating = false }: { tone: "light" | "dark"
           </nav>
         )}
         <div className="site-header__actions">
+          {links.map((l) => (
+            <a key={l.href} href={l.href} className="site-header__link">
+              {l.label}
+            </a>
+          ))}
           <button type="button" className="btn-outline" onClick={() => setOpen(true)}>
             Give Feedback
           </button>
