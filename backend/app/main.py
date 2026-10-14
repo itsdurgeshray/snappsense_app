@@ -7,6 +7,7 @@
     GET  /api/resolve?url=…        validate/parse a store link
     POST /api/feedback             store a "Give feedback" message
     GET  /api/health               service status
+    GET  /health                   liveness ping (uptime monitors)
 """
 
 from __future__ import annotations
@@ -102,6 +103,12 @@ async def feedback(body: FeedbackBody, request: Request):
     jobs.cache.add_feedback(body.rating, message, body.page)
     # Also logged, so it shows up in the hosting dashboard's logs.
     log.info("feedback rating=%s page=%s message=%r", body.rating, body.page, message)
+
+
+@app.api_route("/health", methods=["GET", "HEAD"])
+async def ping():
+    """Cheap liveness check for uptime monitors and keep-awake pings (no work, no I/O)."""
+    return {"ok": True}
 
 
 @app.get("/api/health")

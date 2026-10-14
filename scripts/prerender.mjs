@@ -17,6 +17,8 @@ const content = ssr.withDefaults(fetched);
 const summaries = content.posts.map(({ body, ...p }) => p); // eslint-disable-line no-unused-vars
 
 const json = (v) => JSON.stringify(v).replace(/</g, "\\u003c");
+// Page data as inert JSON (not an executable script), so the CSP can forbid inline scripts.
+const dataTag = (v) => `<script type="application/json" id="app-data">${json(v)}</script>`;
 
 /** Just what a page needs to hydrate: settings, its own page or post, and post summaries for listings. */
 function payload(extra = {}) {
@@ -27,7 +29,7 @@ function write(file, url, data) {
   const { html, head } = ssr.render(url, content);
   const out = template
     .replace("<!--app-head-->", head)
-    .replace("<!--app-data-->", `<script>window.__CONTENT__=${json(data)};window.__PATH__=${json(url)}</script>`)
+    .replace("<!--app-data-->", dataTag({ content: data, path: url }))
     .replace("<!--app-html-->", html);
   const target = path.join(dist, file);
   fs.mkdirSync(path.dirname(target), { recursive: true });
@@ -46,7 +48,7 @@ write("404.html", "/404", payload({ pages: content.pages.filter((p) => p.slug ==
 // The dashboard renders in the browser (Vercel rewrites /app/* here).
 const shell = template
   .replace("<!--app-head-->", ssr.defaultHead(content))
-  .replace("<!--app-data-->", `<script>window.__CONTENT__=${json(payload())}</script>`)
+  .replace("<!--app-data-->", dataTag({ content: payload() }))
   .replace("<!--app-html-->", "");
 fs.writeFileSync(path.join(dist, "app-shell.html"), shell);
 

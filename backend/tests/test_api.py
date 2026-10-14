@@ -169,3 +169,8 @@ def test_issue_reviews_filter_by_version(tmp_path):
     assert both["total"] == 30 and new["total"] == 20 and all(r["version"] == "2.0" for r in new["reviews"])
     assert cache.get_reviews("rep", "bug-0", versions=["9.9"])["total"] == 0  # known issue, no reviews on that version
     assert cache.get_reviews("rep", "nope", versions=["2.0"]) is None
+
+
+def test_health_ping_for_uptime_monitors(client):
+    assert client.get("/health").json() == {"ok": True}
+    assert client.head("/health").status_code == 200

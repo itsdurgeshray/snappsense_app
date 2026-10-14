@@ -65,7 +65,7 @@ export function Dashboard({ store, appId, country, depth }: { store: Store; appI
     document.title = report ? `${report.app.name} feedback analysis · Snappsense` : "Analysing… · Snappsense";
   }, [report]);
 
-  if (!report && !error) return <Loader progress={progress} icon={appIcon} name={appName ?? ""} />;
+  if (!report && !error) return <Loader progress={progress} icon={appIcon} name={appName ?? ""} onCancel={() => navigate("/")} />;
 
   return (
     <>

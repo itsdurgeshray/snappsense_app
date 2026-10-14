@@ -83,6 +83,7 @@ SYNC_SHARE = 0.25  # …or this share of their covered span, whichever is more (
 # Big pages parsed at once (settings.play_inflight) bounds memory.
 TOTAL_BY_DEPTH: dict[Depth, int] = {"quick": 1000, "standard": 4000, "deep": 10000}
 DISCOVERY_EVERY = 1  # pages between checks for which versions are current
+EMPTY_RETRIES = 3  # tries before an empty page counts as the real end of a feed
 KNOWN_PAGE = 0.8  # a page this full of stored reviews means we've reached stored history
 
 Progress = Callable[[dict], None]
@@ -238,6 +239,10 @@ class _Budget:
         """How many reviews shard i may ask for next."""
         return self.quota(i) - self.counts[i]
 
+    def size(self, i: int, default: int) -> int:
+        """Reviews to ask for next; equal shares just take full pages."""
+        return default
+
     async def ready(self, i: int) -> None:
         """Called before each request; equal shares need no pacing."""
 
@@ -274,6 +279,30 @@ class _Paced(_Budget):
     def allowance(self, i: int) -> int:
         # Split between the stars downloading right now, so parallel requests can't overshoot the limit.
         return max(0, self.remaining()) // max(1, self.inflight)
+
+    def size(self, i: int, default: int) -> int:
+        """Ask for only as many reviews as keep this star level in time with the others.
+
+        Star feeds fill at very different rates (WhatsApp: 4,500 2★ reviews
+        span ~46 days, 4,500 5★ reviews ~2): fixed-size pages would spend the
+        shared limit on sparse stars' old history while the busy star barely
+        moves, and the window where every star is complete would shrink.
+        """
+        mine = self.oldest[i]
+        if mine is None or not self.counts[i]:
+            return min(default, FIRST_PAGE)  # first page: learn this star's pace
+        others = [o for j, o in enumerate(self.oldest) if j != i and not self.done[j] and o is not None]
+        if not others:
+            return default
+        slowest = max(others)  # the star that reaches back least far
+        if mine >= slowest:
+            return default  # this star is the one holding everyone back: full speed
+        now = datetime.now(timezone.utc).replace(tzinfo=None)
+        rate = self.counts[i] / max(60.0, (now - mine).total_seconds())  # reviews per second
+        lead = max(SYNC_SLACK, SYNC_SHARE * (now - slowest))
+        target = slowest - lead
+        need = rate * max(0.0, (mine - target).total_seconds())
+        return int(min(default, max(TAIL, need)))
 
     async def ready(self, i: int) -> None:
         async with self.cond:
@@ -401,7 +430,14 @@ async def fetch_play(
         for attempt in range(attempts):
             try:
                 async with (sampling if device else inflight):
-                    return await asyncio.wait_for(call(gp_page, ref.app_id, lang, country, sort, count, star, token, device), PAGE_TIMEOUT)
+                    res = await asyncio.wait_for(call(gp_page, ref.app_id, lang, country, sort, count, star, token, device), PAGE_TIMEOUT)
+                # Google sometimes answers with an empty page and no next-page token
+                # (a soft failure, ~10 s in), which looks exactly like the end of a
+                # star's history. Retry it; only a repeatedly empty page is the end.
+                if not res[0] and res[1] is None and attempt < min(attempts, EMPTY_RETRIES) - 1:
+                    await asyncio.sleep(0.5 * (attempt + 1))
+                    continue
+                return res
             except NotFoundError:
                 return None
             except Exception as e:  # network hiccups and rate limits: back off and retry
@@ -466,8 +502,7 @@ async def fetch_play(
                     return await stop("end" if cutoff_known is None and floor is None else "floor", cutoff_known)
                 replaying = False
                 await budget.ready(i)
-                # Small first pages only help runs that show partial reports ("all"); otherwise one big page is fastest.
-                want = FIRST_PAGE if token is None and depth == "all" else PAGE
+                want = budget.size(i, FIRST_PAGE if token is None else PAGE)
                 want = max(TAIL, min(want, budget.allowance(i)))
                 try:
                     res = await page(star, sort, token, want)

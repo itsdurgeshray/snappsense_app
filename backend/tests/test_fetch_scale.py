@@ -186,3 +186,22 @@ def test_store_keeps_newest_per_app_and_trims_coverage(tmp_path):
     assert len(loaded) == 100 and min(r.at for r in loaded) > NOW - timedelta(hours=101)
     assert cov[1] is not None and cov[1] >= NOW - timedelta(hours=101)  # no longer "complete history"
     assert cov[2] == cov[1]
+
+
+def test_an_empty_page_is_retried_not_taken_as_the_end(monkeypatch):
+    """Google sometimes returns an empty page with no next token; that must not mark a star complete."""
+    f = FakePlay(sizes={1: 300, 2: 0, 3: 0, 4: 0, 5: 0})
+    real = as_page(f.reviews)
+    flaked = set()
+
+    def flaky(app_id, lang, country, sort, count, star, token, device=None):
+        if star == 1 and token is None and "first" not in flaked:
+            flaked.add("first")
+            return [], None  # the soft failure
+        return real(app_id, lang, country, sort, count, star, token, device)
+
+    monkeypatch.setattr(playstore, "gp_page", flaky)
+    monkeypatch.setattr(playstore, "gp_app", f.app)
+    monkeypatch.setattr(playstore.asyncio, "sleep", _no_sleep)
+    res = run("standard")
+    assert flaked and sum(r.rating == 1 for r in res.reviews) == 300

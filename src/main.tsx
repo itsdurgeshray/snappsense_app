@@ -9,10 +9,13 @@ import { fetchContent } from "./content/sanity";
 import type { Content } from "./content/types";
 import { upgradeHashLink } from "./router";
 
-declare global {
-  interface Window {
-    __CONTENT__?: Partial<Content>;
-    __PATH__?: string;
+/** Page data written by the prerender (scripts/prerender.mjs) as inert JSON. */
+function pageData(): { content?: Partial<Content>; path?: string } {
+  const el = document.getElementById("app-data");
+  try {
+    return el?.textContent ? JSON.parse(el.textContent) : {};
+  } catch {
+    return {};
   }
 }
 
@@ -29,12 +32,13 @@ const tree = (content: Content) => (
 const root = document.getElementById("root")!;
 const moved = upgradeHashLink(); // old "/#/app/…" links
 
-if (window.__CONTENT__) {
+const data = pageData();
+if (data.content) {
   // Production: the page was prerendered with this content; pick up where the HTML left off.
-  const content = withDefaults(window.__CONTENT__);
+  const content = withDefaults(data.content);
   // Reuse the HTML only if it was built for this very URL (a server may answer with another page).
   const here = window.location.pathname.replace(/(.)\/+$/, "$1");
-  if (root.firstElementChild && !moved && window.__PATH__ === here) hydrateRoot(root, tree(content));
+  if (root.firstElementChild && !moved && data.path === here) hydrateRoot(root, tree(content));
   else {
     root.textContent = "";
     createRoot(root).render(tree(content));

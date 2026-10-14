@@ -22,7 +22,13 @@ function group(stage: Progress["stage"]): Stage {
  * arc and dashes build up and wind down around it like a spinner. Once the
  * app's icon arrives, the square pops into that icon, holds, and shrinks back.
  */
-export function Loader({ progress, icon, name }: { progress: Progress | null; icon: string | null; name: string }) {
+export function Loader({ progress, icon, name, onCancel }: { progress: Progress | null; icon: string | null; name: string; onCancel?: () => void }) {
+  // Seconds on this screen, for the time hint (a sleeping free-tier server adds ~1 min to the first run).
+  const [secs, setSecs] = useState(0);
+  useEffect(() => {
+    const t = window.setInterval(() => setSecs((n) => n + 1), 1000);
+    return () => window.clearInterval(t);
+  }, []);
   const stage = progress?.stage ?? "connecting";
   const g = group(stage);
   const script = useContent().settings.loader;
@@ -103,6 +109,18 @@ export function Loader({ progress, icon, name }: { progress: Progress | null; ic
         {text}
       </p>
       <p className="ld__detail">{detail || " "}</p>
+      <div className="ld__foot">
+        <span>
+          {(progress?.stage ?? "connecting") === "connecting" && secs >= 6
+            ? "Waking up the server: the first run can take about a minute"
+            : "Usually takes under a minute"}
+        </span>
+        {onCancel && (
+          <button type="button" className="ld__cancel" onClick={onCancel}>
+            Cancel
+          </button>
+        )}
+      </div>
     </div>
   );
 }

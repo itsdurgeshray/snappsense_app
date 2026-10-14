@@ -55,13 +55,13 @@ class Settings:
     # Google Play page size and parallel requests. Bigger is faster but each
     # in-flight page costs memory; lower them on small servers.
     play_page: int = field(default_factory=lambda: _int("SNAPPSENSE_PLAY_PAGE", 4500))
-    play_inflight: int = field(default_factory=lambda: _int("SNAPPSENSE_PLAY_INFLIGHT", 4))
+    play_inflight: int = field(default_factory=lambda: _int("SNAPPSENSE_PLAY_INFLIGHT", 3))
 
     # Sentiment trends reach back this far.
     trend_days: int = field(default_factory=lambda: _int("SNAPPSENSE_TREND_DAYS", 365))
     # Seconds (from the start of a run) the trend sample may take, and its parallel requests.
-    trend_budget_seconds: int = field(default_factory=lambda: _int("SNAPPSENSE_TREND_BUDGET", 30))
-    trend_lanes: int = field(default_factory=lambda: _int("SNAPPSENSE_TREND_LANES", 3))
+    trend_budget_seconds: int = field(default_factory=lambda: _int("SNAPPSENSE_TREND_BUDGET", 35))
+    trend_lanes: int = field(default_factory=lambda: _int("SNAPPSENSE_TREND_LANES", 5))
     # Review ceiling for those runs (most apps need far fewer).
     current_max_reviews: int = field(default_factory=lambda: _int("SNAPPSENSE_CURRENT_MAX", 20_000))
     fetch_budget_seconds: int = field(default_factory=lambda: _int("SNAPPSENSE_FETCH_BUDGET", 300))

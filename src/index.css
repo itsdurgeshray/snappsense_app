@@ -2478,3 +2478,33 @@ mark.concern {
   opacity: 0.4;
   cursor: default;
 }
+
+/* Loader footer: time hint + cancel, quiet at the bottom of the screen */
+.ld__foot {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: max(24px, env(safe-area-inset-bottom));
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: center;
+  gap: 8px 16px;
+  padding: 0 16px;
+  font-size: 13px;
+  color: var(--muted);
+}
+.ld__cancel {
+  border: 1px solid var(--line);
+  background: #fff;
+  border-radius: 999px;
+  padding: 6px 14px;
+  font: inherit;
+  font-size: 13px;
+  color: var(--ink);
+  cursor: pointer;
+}
+.ld__cancel:hover {
+  border-color: var(--brand);
+  color: var(--brand);
+}
